@@ -37,6 +37,32 @@ async function assertUnlocked(taskId, cid, res) {
   return true;
 }
 
+// 무게 문자열 → 톤(t). 'kg' 표기는 1/1000 환산.
+function parseTons(s) {
+  const m = String(s || '').match(/([\d.]+)/);
+  if (!m) return 0;
+  let n = parseFloat(m[1]) || 0;
+  if (/kg/i.test(String(s))) n /= 1000;
+  return n;
+}
+// 당일 위험요인 + 취급중량물 → 안전등급 A/B/C (판단기준)
+function computeGrade(hazards, heavyItems) {
+  const hz = new Set(hazards || []);
+  const maxW = (heavyItems || []).reduce((mx, it) => Math.max(mx, parseTons(it && it.weight)), 0);
+  if (maxW >= 3) return 'A';                                              // 중량물 3t 이상
+  if (hz.has('고온/고압') || hz.has('분진/비산') || hz.has('밀폐공간') || (maxW >= 1 && maxW < 3)) return 'B';
+  if (hz.has('고소작업') || hz.has('화재폭발') || (maxW > 0 && maxW < 1)) return 'C';
+  return '';
+}
+// 요청 본문에서 위험요인/취급중량물을 정규화하고 등급을 계산
+function safetyFromBody(b) {
+  const hazards = Array.isArray(b.hazards) ? b.hazards
+    : (typeof b.hazards === 'string' && b.hazards ? b.hazards.split(',').map((x) => x.trim()).filter(Boolean) : []);
+  let heavy = [];
+  try { const a = typeof b.heavy_handled === 'string' ? JSON.parse(b.heavy_handled || '[]') : b.heavy_handled; if (Array.isArray(a)) heavy = a; } catch { /* noop */ }
+  return { hazardsStr: hazards.join(','), heavyStr: JSON.stringify(heavy), grade: computeGrade(hazards, heavy) };
+}
+
 /* ------------------------------ 인증 ------------------------------ */
 app.get('/api/session', (req, res) => {
   res.json({
@@ -224,9 +250,11 @@ app.post('/api/tasks/:id/logs', h(async (req, res) => {
   const { log_date, content, author } = req.body;
   if (!log_date) throw new Error('작업 일자를 선택하세요.');
   if (!content || !content.trim()) throw new Error('작업 내용을 입력하세요.');
+  const s = safetyFromBody(req.body);
   const { rows } = await query(
-    'INSERT INTO logs (task_id, log_date, content, author) VALUES ($1, $2, $3, $4) RETURNING *',
-    [req.params.id, log_date, content.trim(), author || '']);
+    `INSERT INTO logs (task_id, log_date, content, author, hazards, heavy_handled, grade)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [req.params.id, log_date, content.trim(), author || '', s.hazardsStr, s.heavyStr, s.grade]);
   res.json(rows[0]);
 }));
 
@@ -235,10 +263,12 @@ app.put('/api/logs/:id', h(async (req, res) => {
   if (!existing) throw new Error('작업사항을 찾을 수 없습니다.');
   if (!(await assertUnlocked(existing.task_id, getCid(req), res))) return;
   const { log_date, content, author } = req.body;
+  const s = safetyFromBody(req.body);
   const { rows } = await query(
-    `UPDATE logs SET log_date=$1, content=$2, author=$3, updated_at=now() WHERE id=$4 RETURNING *`,
-    [log_date || existing.log_date, (content ?? existing.content).trim(),
-     author ?? existing.author, req.params.id]);
+    `UPDATE logs SET log_date=$1, content=$2, author=$3, hazards=$4, heavy_handled=$5, grade=$6, updated_at=now()
+     WHERE id=$7 RETURNING *`,
+    [log_date || existing.log_date, (content ?? existing.content).trim(), author ?? existing.author,
+     s.hazardsStr, s.heavyStr, s.grade, req.params.id]);
   res.json(rows[0]);
 }));
 
@@ -260,7 +290,7 @@ const STATUS_KO = { todo: '예정', doing: '진행중', done: '완료' };
 app.get('/api/export', requireAdmin, h(async (req, res) => {
   const { rows } = await query(`
     SELECT p.name AS project, m.name AS menu, m.kind, t.*,
-      l.log_date, l.author, l.content
+      l.log_date, l.author, l.content, l.hazards, l.grade, l.heavy_handled
     FROM projects p
     JOIN menus m ON m.project_id = p.id
     JOIN tasks t ON t.menu_id = m.id
@@ -275,9 +305,15 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
     return items.map((it) => `${it.name || '-'} : ${it.weight || '-'}${it.gear ? ' / 인양장구 ' + it.gear : ''}`).join(' | ');
   };
   const scaffold = (r) => r.scaffold === 'Y' ? `설치(높이 ${r.scaffold_height || '-'})` : (r.scaffold === 'N' ? '미설치' : '');
+  const handled = (r) => {
+    let items = [];
+    try { const a = JSON.parse(r.heavy_handled || '[]'); if (Array.isArray(a)) items = a; } catch { /* noop */ }
+    return items.map((it) => `${it.name || '-'} : ${it.weight || '-'}`).join(' | ');
+  };
   const header = ['프로젝트', '업무메뉴', '유형', '작업오더/업무', '오더번호', '기능위치', 'FME등급',
     '품질등급', '품질입회', '산업안전/화재방호', '비계설치', '중량물(품명:무게/인양장구)',
-    '설계자', '감독자', '비고', '상태', '작업일자', '작성자', '작업내용'];
+    '설계자', '감독자', '비고', '상태', '작업일자', '작성자', '작업내용',
+    '당일안전등급', '당일위험요인', '당일취급중량물'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push([
@@ -285,6 +321,7 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
       r.quality_grade, r.quality_witness, r.hazard_factors, scaffold(r), heavy(r),
       r.designer, r.supervisor, r.note, STATUS_KO[r.status] || r.status,
       r.log_date || '', r.author || '', r.content || '',
+      r.grade || '', r.hazards || '', handled(r),
     ].map(csvCell).join(','));
   }
   const csv = '﻿' + lines.join('\r\n'); // BOM: 엑셀 한글 깨짐 방지

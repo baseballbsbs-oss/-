@@ -85,6 +85,11 @@ export async function initDb() {
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS designer        TEXT NOT NULL DEFAULT '';  -- 설계자
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supervisor      TEXT NOT NULL DEFAULT '';  -- 감독자
 
+    -- 일별 작업사항의 당일 위험요인/취급중량물/안전등급
+    ALTER TABLE logs ADD COLUMN IF NOT EXISTS hazards       TEXT NOT NULL DEFAULT '';  -- 당일 위험요인(콤마)
+    ALTER TABLE logs ADD COLUMN IF NOT EXISTS heavy_handled TEXT NOT NULL DEFAULT '';  -- 당일 취급 중량물(JSON)
+    ALTER TABLE logs ADD COLUMN IF NOT EXISTS grade         TEXT NOT NULL DEFAULT '';  -- 안전등급 A/B/C
+
     CREATE INDEX IF NOT EXISTS idx_menus_project ON menus(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_menu    ON tasks(menu_id);
     CREATE INDEX IF NOT EXISTS idx_logs_task     ON logs(task_id, log_date);

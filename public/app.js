@@ -50,6 +50,19 @@ const QUALITY_GRADES = ['Q', 'A', 'S'];
 const QUALITY_WITNESS = ['V-INSP', 'KV-INSP', 'KPS-INSP', 'KPS-DOC', 'K-DOC2'];
 const HEAVY = '중량물';
 
+// 일별 기록: 당일 위험요인 (고소작업=비계) + 안전등급 산정
+const LOG_HAZARDS = ['고소작업', '고온/고압', '분진/비산', '밀폐공간', '화재폭발'];
+const LOG_HAZARD_LABEL = { '고소작업': '고소작업 (비계)' };
+const parseTons = (s) => { const m = String(s || '').match(/([\d.]+)/); if (!m) return 0; let n = parseFloat(m[1]) || 0; if (/kg/i.test(String(s))) n /= 1000; return n; };
+function computeGrade(hazardsSet, heavyItems) {
+  const maxW = (heavyItems || []).reduce((mx, it) => Math.max(mx, parseTons(it && it.weight)), 0);
+  if (maxW >= 3) return 'A';
+  if (hazardsSet.has('고온/고압') || hazardsSet.has('분진/비산') || hazardsSet.has('밀폐공간') || (maxW >= 1 && maxW < 3)) return 'B';
+  if (hazardsSet.has('고소작업') || hazardsSet.has('화재폭발') || (maxW > 0 && maxW < 1)) return 'C';
+  return '';
+}
+const parseHandled = (s) => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+
 // hazard_factors(콤마 문자열) ↔ 배열
 const parseFactors = (s) => (s ? String(s).split(',').map((x) => x.trim()).filter(Boolean) : []);
 // lifting_gear(JSON 배열 문자열) ↔ 배열  (구버전 호환)
@@ -792,7 +805,7 @@ function renderLogSection(t) {
       <button class="log-add-btn" data-add="${t.id}">＋ 기록 추가</button>
     </div>
     <div class="log-list" id="loglist-${t.id}"><div class="empty-hint">불러오는 중…</div></div>`;
-  sec.querySelector('[data-add]').onclick = () => openLogModal(t.id, null);
+  sec.querySelector('[data-add]').onclick = () => openLogModal(t, null);
   return sec;
 }
 async function refreshLogs(taskId) {
@@ -802,20 +815,28 @@ async function refreshLogs(taskId) {
   try { logs = await api.get('/api/tasks/' + taskId + '/logs'); }
   catch { box.innerHTML = '<div class="empty-hint">불러오기 실패</div>'; return; }
   if (!logs.length) { box.innerHTML = '<div class="empty-hint">기록된 작업사항이 없습니다.</div>'; return; }
+  const task = state.swipe && state.swipe.tasks.find((t) => t.id === taskId);
   box.innerHTML = '';
   for (const lg of logs) {
     const item = el('div', 'log-item');
+    const gradeTag = lg.grade ? `<span class="grade-badge grade-${lg.grade}">안전 ${lg.grade}등급</span>` : '';
+    const hz = lg.hazards ? lg.hazards.split(',').filter(Boolean) : [];
+    const handled = parseHandled(lg.heavy_handled);
+    const hzChips = hz.map((x) => `<span class="chip fme">${esc(x)}</span>`).join('');
+    const hvChips = handled.map((it) => `<span class="chip">${esc(it.name || '중량물')} ${esc(it.weight || '')}</span>`).join('');
     item.innerHTML = `
       <div class="log-top">
         <span class="log-date">${esc(lg.log_date)}</span>
+        ${gradeTag}
         ${lg.author ? `<span class="log-author">✍ ${esc(lg.author)}</span>` : ''}
       </div>
       <div class="log-content">${esc(lg.content)}</div>
+      ${(hzChips || hvChips) ? `<div class="log-tags">${hvChips}${hzChips}</div>` : ''}
       <div class="log-actions">
         <button data-edit="${lg.id}">수정</button>
         <button class="danger" data-del="${lg.id}">삭제</button>
       </div>`;
-    item.querySelector('[data-edit]').onclick = () => openLogModal(taskId, lg);
+    item.querySelector('[data-edit]').onclick = () => openLogModal(task || { id: taskId }, lg);
     item.querySelector('[data-del]').onclick = async () => {
       if (!confirm('이 작업사항을 삭제할까요?')) return;
       await api.del('/api/logs/' + lg.id);
@@ -825,8 +846,21 @@ async function refreshLogs(taskId) {
     box.appendChild(item);
   }
 }
-function openLogModal(taskId, log) {
+function openLogModal(task, log) {
+  const taskId = task.id;
   const editing = !!log;
+  const taskHeavy = migrateHeavy(task);                    // 작업오더에 등록된 중량물 목록
+  const hazards = new Set(editing && log.hazards ? log.hazards.split(',').filter(Boolean) : []);
+  // 당일 취급 중량물: 저장된 것과 작업오더 목록을 품명+무게로 매칭
+  const savedHandled = editing ? parseHandled(log.heavy_handled) : [];
+  const key = (it) => `${it.name || ''}|${it.weight || ''}`;
+  const handled = new Set(savedHandled.map(key));
+
+  const heavyHtml = taskHeavy.length
+    ? `<div class="chk-grid">${taskHeavy.map((it, i) =>
+        `<button type="button" class="chk ${handled.has(key(it)) ? 'active' : ''}" data-hv="${i}">${esc(it.name || '중량물')} (${esc(it.weight || '-')})</button>`).join('')}</div>`
+    : '<div class="empty-hint" style="padding:8px">이 작업오더에 등록된 중량물이 없습니다.</div>';
+
   openModal(`
     <h2>${editing ? '작업사항 수정' : '일별 작업사항 기록'}</h2>
     <div class="field"><label>작업 일자</label><input type="date" id="log-date" value="${editing ? esc(log.log_date) : todayStr()}" /></div>
@@ -837,11 +871,51 @@ function openLogModal(taskId, log) {
       </select>
     </div>
     <div class="field"><label>작업 내용</label><textarea id="log-content" placeholder="당일 수행한 작업 내용을 기록">${editing ? esc(log.content) : ''}</textarea></div>
+    <div class="field"><label>취급할 중량물 선택</label>${heavyHtml}</div>
+    <div class="field">
+      <label>당일 위험요인 선택</label>
+      <div class="chk-grid" id="log-haz">
+        ${LOG_HAZARDS.map((f) => `<button type="button" class="chk ${hazards.has(f) ? 'active' : ''}" data-haz="${esc(f)}">${esc(LOG_HAZARD_LABEL[f] || f)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field">
+      <label>안전등급 (자동 산정)</label>
+      <div id="grade-box" class="grade-box"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" id="cancel">취소</button>
       <button class="btn btn-primary" id="save">${editing ? '저장' : '기록'}</button>
     </div>
   `);
+
+  const selectedHeavy = () => taskHeavy.filter((_, i) => handled.has(key(taskHeavy[i])));
+  const refreshGrade = () => {
+    const g = computeGrade(hazards, selectedHeavy());
+    const box = $('grade-box');
+    box.className = 'grade-box' + (g ? ' grade-' + g : '');
+    box.textContent = g ? `${g} 등급` : '해당 없음 (위험요인·중량물 미선택)';
+  };
+  // 중량물 토글
+  document.querySelectorAll('[data-hv]').forEach((b) => {
+    b.onclick = () => {
+      const it = taskHeavy[Number(b.dataset.hv)];
+      const k = key(it);
+      if (handled.has(k)) handled.delete(k); else handled.add(k);
+      b.classList.toggle('active');
+      refreshGrade();
+    };
+  });
+  // 위험요인 토글
+  document.querySelectorAll('#log-haz .chk').forEach((b) => {
+    b.onclick = () => {
+      const f = b.dataset.haz;
+      if (hazards.has(f)) hazards.delete(f); else hazards.add(f);
+      b.classList.toggle('active');
+      refreshGrade();
+    };
+  });
+  refreshGrade();
+
   $('cancel').onclick = closeModal;
   $('log-content').focus();
   $('save').onclick = async () => {
@@ -849,6 +923,8 @@ function openLogModal(taskId, log) {
       log_date: $('log-date').value,
       author: $('log-author').value,
       content: $('log-content').value.trim(),
+      hazards: [...hazards].join(','),
+      heavy_handled: JSON.stringify(selectedHeavy()),
     };
     if (!payload.log_date) return toast('작업 일자를 선택하세요.');
     if (!payload.content) return toast('작업 내용을 입력하세요.');
