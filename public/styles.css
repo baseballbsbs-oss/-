@@ -124,8 +124,21 @@ body {
 .swipe-track::-webkit-scrollbar { display: none; }
 .swipe-page {
   flex: 0 0 100%; scroll-snap-align: center; padding: 14px;
-  max-width: 760px; margin: 0 auto;
+  max-width: 760px; margin: 0 auto; position: relative;
 }
+
+/* 잠금 오버레이 (다른 사용자가 사용 중) */
+.lock-overlay {
+  position: absolute; inset: 0; z-index: 5;
+  background: rgba(15,23,42,.86); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; text-align: center;
+}
+.lock-msg { font-size: 40px; color: var(--warn); }
+.lock-who { font-size: 15px; color: var(--text); margin: 10px 0 16px; line-height: 1.5; }
+.icon-btn:disabled { opacity: .35; }
+
+.task-lock { font-size: 11px; color: var(--warn); font-weight: 600; margin-left: 6px; }
+.task-row.locked-row { opacity: .6; }
 .wo-card {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px; margin-bottom: 14px;

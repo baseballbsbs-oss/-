@@ -1,9 +1,16 @@
 'use strict';
 
+/* ============================ 클라이언트 식별자 ============================ */
+let clientId = localStorage.getItem('client_id');
+if (!clientId) {
+  clientId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + '-' + Math.random().toString(36).slice(2));
+  localStorage.setItem('client_id', clientId);
+}
+
 /* ============================ API 헬퍼 ============================ */
 const api = {
   async req(method, url, body) {
-    const opt = { method, headers: { 'Content-Type': 'application/json' } };
+    const opt = { method, headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientId } };
     if (body !== undefined) opt.body = JSON.stringify(body);
     const res = await fetch(url, opt);
     if (res.status === 401) {
@@ -315,11 +322,14 @@ function renderTaskRow(menu, t, isWO) {
   } else if (t.note) {
     sub = esc(t.note);
   }
-  main.innerHTML = `<div class="task-title">${esc(t.title)}</div>${sub ? `<div class="task-sub">${sub}</div>` : ''}`;
+  const lockedByOther = t.locked_active && t.locked_by_id !== clientId;
+  const lockTag = lockedByOther ? `<span class="task-lock">🔒 ${esc(t.locked_by)} 사용중</span>` : '';
+  main.innerHTML = `<div class="task-title">${esc(t.title)}${lockTag}</div>${sub ? `<div class="task-sub">${sub}</div>` : ''}`;
+  if (lockedByOther) row.classList.add('locked-row');
   row.appendChild(dot);
   row.appendChild(main);
-  // 작업오더는 탭 시 스와이프(일별 작업사항) 뷰로, 일반업무도 로그 기록 가능
-  row.onclick = () => openSwipe(menu, t.id);
+  // 탭 시 잠금을 획득한 뒤 스와이프(일별 작업사항) 뷰로 진입
+  row.onclick = () => openTask(menu, t.id);
   return row;
 }
 function openMenuModal(menu) {
@@ -440,13 +450,48 @@ function openTaskModal(menu, task) {
   };
 }
 
+/* ============================ 잠금 (동시 접근 방지) ============================ */
+// 잠금 획득/갱신. 성공 {ok:true}, 다른 사용자 사용 중이면 {ok:false, locked_by}
+async function lockTask(taskId) {
+  try {
+    const res = await fetch('/api/tasks/' + taskId + '/lock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Client-Id': clientId },
+      body: JSON.stringify({ name: state.me }),
+    });
+    if (res.status === 401) { showLogin(); return { ok: false }; }
+    if (res.ok) return { ok: true };
+    const e = await res.json().catch(() => ({}));
+    return { ok: false, locked_by: e.locked_by || '다른 사용자' };
+  } catch { return { ok: false }; }
+}
+function unlockTask(taskId) {
+  if (!taskId) return;
+  const url = '/api/tasks/' + taskId + '/unlock?cid=' + encodeURIComponent(clientId);
+  try {
+    if (navigator.sendBeacon) navigator.sendBeacon(url);
+    else fetch(url, { method: 'POST', headers: { 'X-Client-Id': clientId }, keepalive: true });
+  } catch { /* noop */ }
+}
+
 /* ============================ 스와이프 뷰 (일별 작업사항) ============================ */
+async function openTask(menu, taskId) {
+  // 목록에서 탭할 때 먼저 잠금 시도 → 성공해야 진입
+  const r = await lockTask(taskId);
+  if (!r.ok) {
+    toast(`🔒 ${r.locked_by || '다른 사용자'} 님이 사용 중입니다.`);
+    await loadMenus();
+    return;
+  }
+  await openSwipe(menu, taskId);
+}
+
 async function openSwipe(menu, focusTaskId) {
   const fresh = state.menus.find((m) => m.id === menu.id) || menu;
   const tasks = fresh.tasks;
   if (!tasks.length) { openTaskModal(menu, null); return; }
   const index = Math.max(0, tasks.findIndex((t) => t.id === focusTaskId));
-  state.swipe = { menu: fresh, tasks, index };
+  state.swipe = { menu: fresh, tasks, index, activeTaskId: null, settleTimer: null };
 
   $('view-menus').classList.add('hidden');
   $('add-menu').classList.add('hidden');
@@ -465,7 +510,7 @@ async function openSwipe(menu, focusTaskId) {
   renderDots();
   updateSwipeCounter();
 
-  // 스크롤 스냅으로 현재 인덱스 감지
+  // 스크롤 스냅으로 현재 인덱스 감지 → 멈추면 해당 작업오더 잠금 전환
   track.onscroll = () => {
     const w = track.clientWidth;
     const idx = Math.round(track.scrollLeft / w);
@@ -474,17 +519,63 @@ async function openSwipe(menu, focusTaskId) {
       updateSwipeCounter();
       renderDots();
     }
+    clearTimeout(state.swipe.settleTimer);
+    state.swipe.settleTimer = setTimeout(() => setActiveTask(state.swipe.index), 180);
   };
   // 포커스 페이지로 이동
   requestAnimationFrame(() => {
     track.scrollLeft = index * track.clientWidth;
   });
-  await refreshLogs(tasks[index].id);
+  await setActiveTask(index);
+
+  // 잠금 유지용 하트비트 (15초)
+  clearInterval(swipeHeartbeat);
+  swipeHeartbeat = setInterval(() => {
+    const s = state.swipe;
+    if (s && s.activeTaskId) lockTask(s.activeTaskId);
+  }, 15000);
 }
+let swipeHeartbeat = null;
+
+// 현재 중앙 작업오더의 잠금을 확보하고, 이전 것은 해제. 실패 시 잠금 오버레이 표시.
+async function setActiveTask(i) {
+  const s = state.swipe;
+  if (!s || !s.tasks[i]) return;
+  const task = s.tasks[i];
+  if (s.activeTaskId && s.activeTaskId !== task.id) {
+    unlockTask(s.activeTaskId);
+    s.activeTaskId = null;
+  }
+  const r = await lockTask(task.id);
+  const pageEl = $('swipe-track').children[i];
+  if (r.ok) {
+    s.activeTaskId = task.id;
+    setPageLocked(pageEl, null);
+    $('swipe-edit').disabled = false;
+    refreshLogs(task.id);
+  } else {
+    s.activeTaskId = null;
+    setPageLocked(pageEl, r.locked_by || '다른 사용자');
+    $('swipe-edit').disabled = true;
+  }
+}
+
+function setPageLocked(pageEl, holderName) {
+  if (!pageEl) return;
+  let ov = pageEl.querySelector('.lock-overlay');
+  if (holderName) {
+    if (!ov) { ov = el('div', 'lock-overlay'); pageEl.appendChild(ov); }
+    ov.innerHTML = `<div class="lock-msg">🔒<div class="lock-who">${esc(holderName)} 님이<br>사용 중입니다</div>
+      <button class="btn btn-ghost" id="lock-retry">다시 시도</button></div>`;
+    ov.querySelector('#lock-retry').onclick = () => setActiveTask(state.swipe.index);
+  } else if (ov) {
+    ov.remove();
+  }
+}
+
 function updateSwipeCounter() {
   const s = state.swipe;
   $('swipe-counter').textContent = `${s.index + 1} / ${s.tasks.length} · ${s.tasks[s.index].title}`;
-  refreshLogs(s.tasks[s.index].id);
 }
 function renderDots() {
   const dots = $('swipe-dots');
@@ -594,12 +685,33 @@ function openLogModal(taskId, log) {
   };
 }
 function closeSwipe() {
+  clearInterval(swipeHeartbeat);
+  if (state.swipe && state.swipe.activeTaskId) unlockTask(state.swipe.activeTaskId);
   state.swipe = null;
   $('view-swipe').classList.add('hidden');
   $('view-menus').classList.remove('hidden');
   $('add-menu').classList.remove('hidden');
   loadMenus();
 }
+
+// 탭을 닫거나 화면을 벗어나면 잠금 해제 (영구 잠김 방지)
+function releaseOnLeave() {
+  if (state.swipe && state.swipe.activeTaskId) unlockTask(state.swipe.activeTaskId);
+}
+window.addEventListener('pagehide', releaseOnLeave);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') releaseOnLeave();
+  else if (state.swipe && state.swipe.activeTaskId) lockTask(state.swipe.activeTaskId); // 복귀 시 재획득
+});
+
+// 목록 화면에서 다른 사람의 사용중(🔒) 표시를 주기적으로 갱신
+setInterval(() => {
+  if (state.swipe) return;                                   // 스와이프 중이면 skip
+  if (!$('modal-backdrop').classList.contains('hidden')) return; // 모달 열려있으면 skip
+  if (document.visibilityState !== 'visible') return;
+  if (!state.currentProjectId) return;
+  loadMenus();
+}, 20000);
 
 /* ============================ 시작 ============================ */
 init().catch((e) => { console.error(e); toast('초기화 오류: ' + e.message); });

@@ -69,6 +69,11 @@ export async function initDb() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
+    -- 동시 접근 방지용 잠금 (한 번에 한 명만 개별 업무 접근)
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS locked_by    TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS locked_by_id TEXT;
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS locked_at    TIMESTAMPTZ;
+
     CREATE INDEX IF NOT EXISTS idx_menus_project ON menus(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_menu    ON tasks(menu_id);
     CREATE INDEX IF NOT EXISTS idx_logs_task     ON logs(task_id, log_date);

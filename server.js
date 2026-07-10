@@ -16,6 +16,26 @@ const h = (fn) => (req, res) => Promise.resolve(fn(req, res)).catch((err) => {
   res.status(400).json({ error: err.message });
 });
 
+// 잠금 유효 시간 (초). 이 시간 동안 신호가 없으면 자동 해제.
+const LOCK_TTL = 40;
+const LOCK_ACTIVE = `(locked_by_id IS NOT NULL AND locked_at > now() - interval '${LOCK_TTL} seconds')`;
+const getCid = (req) => req.headers['x-client-id'] || req.query.cid || '';
+
+// 다른 사용자가 잠금 중이면 그 사람 이름을 반환, 아니면 false, 없으면 null
+async function lockedByOther(taskId, cid) {
+  const r = await query(
+    `SELECT locked_by, (locked_by_id IS NOT NULL AND locked_by_id <> $2 AND
+       locked_at > now() - interval '${LOCK_TTL} seconds') AS blocked
+       FROM tasks WHERE id = $1`, [taskId, cid]);
+  if (!r.rows[0]) return null;
+  return r.rows[0].blocked ? (r.rows[0].locked_by || '다른 사용자') : false;
+}
+async function assertUnlocked(taskId, cid, res) {
+  const who = await lockedByOther(taskId, cid);
+  if (who) { res.status(409).json({ error: `${who} 님이 사용 중입니다.`, locked: true, locked_by: who }); return false; }
+  return true;
+}
+
 /* ------------------------------ 인증 ------------------------------ */
 app.get('/api/session', (req, res) => {
   res.json({ auth_enabled: AUTH_ENABLED, authed: isAuthed(req) });
@@ -81,7 +101,8 @@ app.get('/api/projects/:id/menus', h(async (req, res) => {
   if (menus.length === 0) return res.json([]);
   const menuIds = menus.map((m) => m.id);
   const tasks = (await query(
-    `SELECT t.*, (SELECT COUNT(*)::int FROM logs l WHERE l.task_id = t.id) AS log_count
+    `SELECT t.*, ${LOCK_ACTIVE} AS locked_active,
+       (SELECT COUNT(*)::int FROM logs l WHERE l.task_id = t.id) AS log_count
        FROM tasks t WHERE t.menu_id = ANY($1) ORDER BY t.sort_order, t.id`, [menuIds])).rows;
   const byMenu = new Map(menus.map((m) => [m.id, { ...m, tasks: [] }]));
   for (const t of tasks) byMenu.get(t.menu_id).tasks.push(t);
@@ -130,6 +151,7 @@ app.post('/api/menus/:id/tasks', h(async (req, res) => {
 }));
 
 app.put('/api/tasks/:id', h(async (req, res) => {
+  if (!(await assertUnlocked(req.params.id, getCid(req), res))) return;
   const existing = (await query('SELECT * FROM tasks WHERE id = $1', [req.params.id])).rows[0];
   if (!existing) throw new Error('작업오더를 찾을 수 없습니다.');
   const m = { ...existing };
@@ -143,7 +165,32 @@ app.put('/api/tasks/:id', h(async (req, res) => {
 }));
 
 app.delete('/api/tasks/:id', h(async (req, res) => {
+  if (!(await assertUnlocked(req.params.id, getCid(req), res))) return;
   await query('DELETE FROM tasks WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+}));
+
+/* ------------------------------ 잠금 ------------------------------ */
+// 개별 업무(작업오더) 접근 잠금 획득/갱신 (한 번에 한 명만)
+app.post('/api/tasks/:id/lock', h(async (req, res) => {
+  const cid = getCid(req);
+  if (!cid) throw new Error('클라이언트 식별자가 없습니다.');
+  const name = (req.body?.name || '').toString().slice(0, 40);
+  const upd = await query(
+    `UPDATE tasks SET locked_by = $1, locked_by_id = $2, locked_at = now()
+       WHERE id = $3 AND (locked_by_id IS NULL OR locked_by_id = $2
+                          OR locked_at < now() - interval '${LOCK_TTL} seconds')
+       RETURNING id`, [name, cid, req.params.id]);
+  if (upd.rowCount === 1) return res.json({ ok: true });
+  const cur = (await query('SELECT locked_by FROM tasks WHERE id = $1', [req.params.id])).rows[0];
+  res.status(409).json({ error: `${cur?.locked_by || '다른 사용자'} 님이 사용 중입니다.`, locked: true, locked_by: cur?.locked_by || '다른 사용자' });
+}));
+
+// 잠금 해제 (소유자만). sendBeacon 대응: 본문 없이 ?cid= 로도 허용
+app.post('/api/tasks/:id/unlock', h(async (req, res) => {
+  const cid = getCid(req);
+  await query('UPDATE tasks SET locked_by=NULL, locked_by_id=NULL, locked_at=NULL WHERE id=$1 AND locked_by_id=$2',
+    [req.params.id, cid]);
   res.json({ ok: true });
 }));
 
@@ -155,6 +202,7 @@ app.get('/api/tasks/:id/logs', h(async (req, res) => {
 }));
 
 app.post('/api/tasks/:id/logs', h(async (req, res) => {
+  if (!(await assertUnlocked(req.params.id, getCid(req), res))) return;
   const { log_date, content, author } = req.body;
   if (!log_date) throw new Error('작업 일자를 선택하세요.');
   if (!content || !content.trim()) throw new Error('작업 내용을 입력하세요.');
@@ -167,6 +215,7 @@ app.post('/api/tasks/:id/logs', h(async (req, res) => {
 app.put('/api/logs/:id', h(async (req, res) => {
   const existing = (await query('SELECT * FROM logs WHERE id = $1', [req.params.id])).rows[0];
   if (!existing) throw new Error('작업사항을 찾을 수 없습니다.');
+  if (!(await assertUnlocked(existing.task_id, getCid(req), res))) return;
   const { log_date, content, author } = req.body;
   const { rows } = await query(
     `UPDATE logs SET log_date=$1, content=$2, author=$3, updated_at=now() WHERE id=$4 RETURNING *`,
@@ -176,6 +225,8 @@ app.put('/api/logs/:id', h(async (req, res) => {
 }));
 
 app.delete('/api/logs/:id', h(async (req, res) => {
+  const existing = (await query('SELECT task_id FROM logs WHERE id = $1', [req.params.id])).rows[0];
+  if (existing && !(await assertUnlocked(existing.task_id, getCid(req), res))) return;
   await query('DELETE FROM logs WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
 }));
