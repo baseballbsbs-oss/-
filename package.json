@@ -1,0 +1,18 @@
+{
+  "name": "dept-task-scheduler",
+  "version": "1.0.0",
+  "description": "파트별 업무 공유 스케줄러 - 프로젝트/업무메뉴/OH 작업오더 및 일별 작업사항 공유",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2"
+  }
+}

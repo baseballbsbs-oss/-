@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>파트별 업무 공유 스케줄러</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- 상단 바 -->
+  <header class="topbar">
+    <div class="topbar-row">
+      <h1 class="brand">📋 업무 스케줄러</h1>
+      <button id="whoami" class="who-btn" title="사용자 선택">👤 <span id="whoami-name">미지정</span></button>
+    </div>
+    <div class="topbar-row">
+      <select id="project-select" class="project-select"></select>
+      <button id="add-project" class="icon-btn" title="프로젝트 추가">＋</button>
+      <button id="del-project" class="icon-btn danger" title="프로젝트 삭제">🗑</button>
+    </div>
+  </header>
+
+  <!-- 메뉴 목록 화면 -->
+  <main id="view-menus" class="view">
+    <div id="menu-list" class="menu-list"></div>
+    <button id="add-menu" class="fab">＋ 업무 메뉴 추가</button>
+  </main>
+
+  <!-- 작업오더 일별 작업사항 (스와이프) 화면 -->
+  <section id="view-swipe" class="view hidden">
+    <div class="swipe-header">
+      <button id="swipe-back" class="icon-btn">←</button>
+      <div class="swipe-title">
+        <div id="swipe-menu-name" class="swipe-menu-name"></div>
+        <div id="swipe-counter" class="swipe-counter"></div>
+      </div>
+      <button id="swipe-edit" class="icon-btn" title="작업오더 정보 수정">✎</button>
+    </div>
+    <div id="swipe-track" class="swipe-track"></div>
+    <div class="swipe-dots" id="swipe-dots"></div>
+  </section>
+
+  <!-- 모달 -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal" id="modal"></div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
