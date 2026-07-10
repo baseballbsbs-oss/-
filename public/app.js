@@ -43,6 +43,18 @@ const state = {
 
 const MEMBER_COLORS = ['#4f8cff', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#ec4899', '#14b8a6'];
 
+// 작업오더 선택 옵션
+const SAFETY_FACTORS = ['고온/고압', '유해/위험물질', '고소작업', '분진/비산', '밀폐공간', '화재폭발', '소음지역', '중량물'];
+const FME_GRADES = ['ZONE 1', 'ZONE 2', 'ZONE 3', 'STEP 1', 'STEP 2', 'STEP 3'];
+const QUALITY_GRADES = ['Q', 'A', 'S'];
+const QUALITY_WITNESS = ['V-INSP', 'KV-INSP', 'KPS-INSP', 'KPS-DOC', 'K-DOC2'];
+const HEAVY = '중량물';
+
+// hazard_factors(콤마 문자열) ↔ 배열
+const parseFactors = (s) => (s ? String(s).split(',').map((x) => x.trim()).filter(Boolean) : []);
+// lifting_gear(JSON 배열 문자열) ↔ 배열
+const parseGear = (s) => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+
 /* ============================ 유틸 ============================ */
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => {
@@ -401,11 +413,49 @@ function openTaskModal(menu, task) {
   const editing = !!task;
   const isWO = menu.kind === 'work_order';
   const t = task || {};
+  const factors = new Set(parseFactors(t.hazard_factors));
+  let gear = parseGear(t.lifting_gear);
+  let scaf = t.scaffold || '';
+
+  const optList = (list, cur) =>
+    ['<option value="">선택 안 함</option>',
+     ...list.map((v) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(v)}</option>`)].join('');
+
   const woFields = isWO ? `
     <div class="field"><label>오더번호</label><input id="f-order_number" value="${esc(t.order_number)}" placeholder="예: 10012345" /></div>
     <div class="field"><label>기능위치</label><input id="f-functional_location" value="${esc(t.functional_location)}" placeholder="예: 2-MFW-P-001A" /></div>
-    <div class="field"><label>FME 등급</label><input id="f-fme_grade" value="${esc(t.fme_grade)}" placeholder="예: A / B / C" /></div>
-    <div class="field"><label>유해위험요소</label><textarea id="f-hazard_factors" placeholder="예: 고온·고압, 중량물, 밀폐공간 등">${esc(t.hazard_factors)}</textarea></div>
+    <div class="field"><label>FME 등급</label><select id="f-fme_grade">${optList(FME_GRADES, t.fme_grade)}</select></div>
+    <div class="field"><label>품질등급</label><select id="f-quality_grade">${optList(QUALITY_GRADES, t.quality_grade)}</select></div>
+    <div class="field"><label>품질입회</label><select id="f-quality_witness">${optList(QUALITY_WITNESS, t.quality_witness)}</select></div>
+    <div class="field">
+      <label>산업안전 / 화재방호 (해당 항목 선택)</label>
+      <div class="chk-grid" id="factor-grid">
+        ${SAFETY_FACTORS.map((f) => `<button type="button" class="chk ${factors.has(f) ? 'active' : ''}" data-factor="${esc(f)}">${esc(f)}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field heavy-box ${factors.has(HEAVY) ? '' : 'hidden'}" id="heavy-section">
+      <label>중량물 무게</label>
+      <input id="f-heavy_weight" value="${esc(t.heavy_weight)}" placeholder="예: 2.5 ton" />
+      <label style="margin-top:12px">인양장구 (여러 개 추가 가능)</label>
+      <div class="gear-add-row">
+        <input id="gear-input" placeholder="예: 20t 크레인, 샤클 3.2t" />
+        <button type="button" class="btn btn-ghost" id="gear-add" style="flex:0 0 auto">추가</button>
+      </div>
+      <div id="gear-list" class="gear-list"></div>
+    </div>
+    <div class="field">
+      <label>비계설치 여부</label>
+      <div class="seg" id="scaf-seg">
+        <button type="button" data-scaf="">미지정</button>
+        <button type="button" data-scaf="Y">설치(Y)</button>
+        <button type="button" data-scaf="N">미설치(N)</button>
+      </div>
+      <div id="scaf-height-wrap" class="${scaf === 'Y' ? '' : 'hidden'}" style="margin-top:10px">
+        <input id="f-scaffold_height" value="${esc(t.scaffold_height)}" placeholder="비계 높이 (예: 12 m)" />
+      </div>
+    </div>
+    <div class="field"><label>설계자</label><input id="f-designer" value="${esc(t.designer)}" placeholder="설계자 이름" /></div>
+    <div class="field"><label>감독자</label><input id="f-supervisor" value="${esc(t.supervisor)}" placeholder="감독자 이름" /></div>
   ` : '';
   openModal(`
     <h2>${editing ? (isWO ? '작업오더 수정' : '하부 업무 수정') : (isWO ? '작업오더 추가' : '하부 업무 추가')}</h2>
@@ -430,26 +480,76 @@ function openTaskModal(menu, task) {
     </div>
   `);
   let status = t.status || 'todo';
-  const mark = () => document.querySelectorAll('#status-seg button').forEach((b) =>
+  const markStatus = () => document.querySelectorAll('#status-seg button').forEach((b) =>
     b.classList.toggle('active', b.dataset.st === status));
   document.querySelectorAll('#status-seg button').forEach((b) => {
-    b.onclick = () => { status = b.dataset.st; mark(); };
+    b.onclick = () => { status = b.dataset.st; markStatus(); };
   });
-  mark();
+  markStatus();
+
+  if (isWO) {
+    // 산업안전 체크 토글 (중량물 선택 시 중량물 상세 표시)
+    document.querySelectorAll('#factor-grid .chk').forEach((b) => {
+      b.onclick = () => {
+        const f = b.dataset.factor;
+        if (factors.has(f)) factors.delete(f); else factors.add(f);
+        b.classList.toggle('active');
+        if (f === HEAVY) $('heavy-section').classList.toggle('hidden', !factors.has(HEAVY));
+      };
+    });
+    // 인양장구 목록 (여러 개)
+    const renderGear = () => {
+      const box = $('gear-list');
+      box.innerHTML = gear.length ? '' : '<div class="empty-hint" style="padding:6px">등록된 인양장구 없음</div>';
+      gear.forEach((g, i) => {
+        const row = el('div', 'gear-item');
+        row.innerHTML = `<span>${esc(g)}</span><button type="button" class="mini-btn danger">✕</button>`;
+        row.querySelector('button').onclick = () => { gear.splice(i, 1); renderGear(); };
+        box.appendChild(row);
+      });
+    };
+    renderGear();
+    const addGear = () => {
+      const v = $('gear-input').value.trim();
+      if (!v) return;
+      gear.push(v);
+      $('gear-input').value = '';
+      renderGear();
+    };
+    $('gear-add').onclick = addGear;
+    $('gear-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addGear(); } });
+    // 비계 세그먼트 (Y 선택 시 높이 입력)
+    const markScaf = () => document.querySelectorAll('#scaf-seg button').forEach((b) =>
+      b.classList.toggle('active', b.dataset.scaf === scaf));
+    document.querySelectorAll('#scaf-seg button').forEach((b) => {
+      b.onclick = () => { scaf = b.dataset.scaf; markScaf(); $('scaf-height-wrap').classList.toggle('hidden', scaf !== 'Y'); };
+    });
+    markScaf();
+  }
+
   $('cancel').onclick = closeModal;
   const getVal = (id) => { const e = $(id); return e ? e.value : ''; };
   $('save').onclick = async () => {
     const title = $('f-title').value.trim();
     if (!title) return toast('제목을 입력하세요.');
-    const payload = {
-      title,
-      order_number: getVal('f-order_number'),
-      functional_location: getVal('f-functional_location'),
-      fme_grade: getVal('f-fme_grade'),
-      hazard_factors: getVal('f-hazard_factors'),
-      note: getVal('f-note'),
-      status,
-    };
+    const payload = { title, note: getVal('f-note'), status };
+    if (isWO) {
+      const hasHeavy = factors.has(HEAVY);
+      Object.assign(payload, {
+        order_number: getVal('f-order_number'),
+        functional_location: getVal('f-functional_location'),
+        fme_grade: getVal('f-fme_grade'),
+        quality_grade: getVal('f-quality_grade'),
+        quality_witness: getVal('f-quality_witness'),
+        hazard_factors: SAFETY_FACTORS.filter((f) => factors.has(f)).join(','),
+        scaffold: scaf,
+        scaffold_height: scaf === 'Y' ? getVal('f-scaffold_height') : '',
+        heavy_weight: hasHeavy ? getVal('f-heavy_weight') : '',
+        lifting_gear: hasHeavy ? JSON.stringify(gear) : '',
+        designer: getVal('f-designer'),
+        supervisor: getVal('f-supervisor'),
+      });
+    }
     let saved;
     if (editing) saved = await api.put('/api/tasks/' + task.id, payload);
     else saved = await api.post('/api/menus/' + menu.id + '/tasks', payload);
@@ -641,11 +741,22 @@ function renderWOCard(menu, t) {
       ['오더번호', t.order_number],
       ['기능위치', t.functional_location],
       ['FME 등급', t.fme_grade],
+      ['품질등급', t.quality_grade],
+      ['품질입회', t.quality_witness],
+      ['설계자', t.designer],
+      ['감독자', t.supervisor],
       ['진행상태', { todo: '예정', doing: '진행중', done: '완료' }[t.status] || '예정'],
     ];
+    const scafText = t.scaffold === 'Y' ? `설치 (높이 ${esc(t.scaffold_height) || '-'})` : (t.scaffold === 'N' ? '미설치' : '');
+    const gearArr = parseGear(t.lifting_gear);
+    const factorChips = parseFactors(t.hazard_factors)
+      .map((x) => `<span class="chip fme" style="margin:2px 4px 2px 0;display:inline-block">${esc(x)}</span>`).join('');
     fields = '<div class="wo-grid">' + f.map(([l, v]) =>
       `<div class="wo-field"><div class="wo-label">${l}</div><div class="wo-value">${esc(v) || '-'}</div></div>`).join('')
-      + (t.hazard_factors ? `<div class="wo-field full"><div class="wo-label">유해위험요소</div><div class="wo-value">${esc(t.hazard_factors)}</div></div>` : '')
+      + (scafText ? `<div class="wo-field"><div class="wo-label">비계설치</div><div class="wo-value">${scafText}</div></div>` : '')
+      + (factorChips ? `<div class="wo-field full"><div class="wo-label">산업안전 / 화재방호</div><div class="wo-value">${factorChips}</div></div>` : '')
+      + (t.heavy_weight ? `<div class="wo-field full"><div class="wo-label">중량물 무게</div><div class="wo-value">${esc(t.heavy_weight)}</div></div>` : '')
+      + (gearArr.length ? `<div class="wo-field full"><div class="wo-label">인양장구</div><div class="wo-value">${gearArr.map(esc).join(' · ')}</div></div>` : '')
       + (t.note ? `<div class="wo-field full"><div class="wo-label">비고</div><div class="wo-value">${esc(t.note)}</div></div>` : '')
       + '</div>';
   } else {

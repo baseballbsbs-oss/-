@@ -74,6 +74,16 @@ export async function initDb() {
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS locked_by_id TEXT;
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS locked_at    TIMESTAMPTZ;
 
+    -- 산업안전/품질/비계/중량물/설계·감독 세부 항목
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS quality_grade   TEXT NOT NULL DEFAULT '';  -- 품질등급 Q/A/S
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS quality_witness TEXT NOT NULL DEFAULT '';  -- 품질입회
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scaffold        TEXT NOT NULL DEFAULT '';  -- 비계설치 Y/N
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scaffold_height TEXT NOT NULL DEFAULT '';  -- 비계 높이
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS heavy_weight    TEXT NOT NULL DEFAULT '';  -- 중량물 무게
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lifting_gear    TEXT NOT NULL DEFAULT '';  -- 인양장구(JSON 배열)
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS designer        TEXT NOT NULL DEFAULT '';  -- 설계자
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supervisor      TEXT NOT NULL DEFAULT '';  -- 감독자
+
     CREATE INDEX IF NOT EXISTS idx_menus_project ON menus(project_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_menu    ON tasks(menu_id);
     CREATE INDEX IF NOT EXISTS idx_logs_task     ON logs(task_id, log_date);

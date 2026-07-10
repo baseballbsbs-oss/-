@@ -140,18 +140,25 @@ app.delete('/api/menus/:id', h(async (req, res) => {
 }));
 
 /* ------------------------ 하부 업무 / 작업오더 ------------------------ */
-const TASK_FIELDS = ['title', 'order_number', 'functional_location', 'fme_grade', 'hazard_factors', 'note', 'status'];
+// title/status 외 나머지 컬럼은 기본값 ''
+const TASK_COLS = ['title', 'order_number', 'functional_location', 'fme_grade', 'hazard_factors',
+  'note', 'status', 'quality_grade', 'quality_witness', 'scaffold', 'scaffold_height',
+  'heavy_weight', 'lifting_gear', 'designer', 'supervisor'];
+const taskDefault = (c) => (c === 'status' ? 'todo' : '');
 
 app.post('/api/menus/:id/tasks', h(async (req, res) => {
   const b = req.body;
   if (!b.title || !b.title.trim()) throw new Error('제목을 입력하세요.');
   const max = (await query(
     'SELECT COALESCE(MAX(sort_order), 0) AS m FROM tasks WHERE menu_id = $1', [req.params.id])).rows[0].m;
+  const cols = ['menu_id', ...TASK_COLS, 'sort_order'];
+  const vals = [req.params.id,
+    ...TASK_COLS.map((c) => (b[c] !== undefined && b[c] !== null ? b[c] : taskDefault(c))),
+    max + 1];
+  vals[1] = String(vals[1]).trim(); // title
+  const ph = cols.map((_, i) => '$' + (i + 1)).join(', ');
   const { rows } = await query(
-    `INSERT INTO tasks (menu_id, title, order_number, functional_location, fme_grade, hazard_factors, note, status, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [req.params.id, b.title.trim(), b.order_number || '', b.functional_location || '',
-     b.fme_grade || '', b.hazard_factors || '', b.note || '', b.status || 'todo', max + 1]);
+    `INSERT INTO tasks (${cols.join(', ')}) VALUES (${ph}) RETURNING *`, vals);
   res.json(rows[0]);
 }));
 
@@ -160,12 +167,12 @@ app.put('/api/tasks/:id', h(async (req, res) => {
   const existing = (await query('SELECT * FROM tasks WHERE id = $1', [req.params.id])).rows[0];
   if (!existing) throw new Error('작업오더를 찾을 수 없습니다.');
   const m = { ...existing };
-  for (const f of TASK_FIELDS) if (req.body[f] !== undefined) m[f] = req.body[f];
+  for (const f of TASK_COLS) if (req.body[f] !== undefined) m[f] = req.body[f];
   if (!m.title || !String(m.title).trim()) throw new Error('제목을 입력하세요.');
+  const set = TASK_COLS.map((c, i) => `${c}=$${i + 1}`).join(', ');
+  const vals = [...TASK_COLS.map((c) => m[c]), req.params.id];
   const { rows } = await query(
-    `UPDATE tasks SET title=$1, order_number=$2, functional_location=$3, fme_grade=$4,
-       hazard_factors=$5, note=$6, status=$7 WHERE id=$8 RETURNING *`,
-    [m.title, m.order_number, m.functional_location, m.fme_grade, m.hazard_factors, m.note, m.status, req.params.id]);
+    `UPDATE tasks SET ${set} WHERE id=$${TASK_COLS.length + 1} RETURNING *`, vals);
   res.json(rows[0]);
 }));
 
@@ -252,8 +259,7 @@ const STATUS_KO = { todo: '예정', doing: '진행중', done: '완료' };
 
 app.get('/api/export', requireAdmin, h(async (req, res) => {
   const { rows } = await query(`
-    SELECT p.name AS project, m.name AS menu, m.kind,
-      t.title, t.order_number, t.functional_location, t.fme_grade, t.hazard_factors, t.note, t.status,
+    SELECT p.name AS project, m.name AS menu, m.kind, t.*,
       l.log_date, l.author, l.content
     FROM projects p
     JOIN menus m ON m.project_id = p.id
@@ -261,13 +267,17 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
     LEFT JOIN logs l ON l.task_id = t.id
     ORDER BY p.id, m.sort_order, m.id, t.sort_order, t.id, l.log_date, l.id
   `);
-  const header = ['프로젝트', '업무메뉴', '유형', '작업오더/업무', '오더번호', '기능위치',
-    'FME등급', '유해위험요소', '비고', '상태', '작업일자', '작성자', '작업내용'];
+  const gear = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a.join(' / ') : (v || ''); } catch { return v || ''; } };
+  const scaffold = (r) => r.scaffold === 'Y' ? `설치(높이 ${r.scaffold_height || '-'})` : (r.scaffold === 'N' ? '미설치' : '');
+  const header = ['프로젝트', '업무메뉴', '유형', '작업오더/업무', '오더번호', '기능위치', 'FME등급',
+    '품질등급', '품질입회', '산업안전/화재방호', '비계설치', '중량물무게', '인양장구',
+    '설계자', '감독자', '비고', '상태', '작업일자', '작성자', '작업내용'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push([
-      r.project, r.menu, KIND_KO[r.kind] || r.kind, r.title, r.order_number, r.functional_location,
-      r.fme_grade, r.hazard_factors, r.note, STATUS_KO[r.status] || r.status,
+      r.project, r.menu, KIND_KO[r.kind] || r.kind, r.title, r.order_number, r.functional_location, r.fme_grade,
+      r.quality_grade, r.quality_witness, r.hazard_factors, scaffold(r), r.heavy_weight, gear(r.lifting_gear),
+      r.designer, r.supervisor, r.note, STATUS_KO[r.status] || r.status,
       r.log_date || '', r.author || '', r.content || '',
     ].map(csvCell).join(','));
   }

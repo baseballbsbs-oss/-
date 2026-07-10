@@ -209,6 +209,26 @@ body {
 }
 .seg button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* 산업안전 체크 그리드 */
+.chk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chk {
+  padding: 11px 8px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--card); color: var(--muted); font-weight: 600; font-size: 14px;
+}
+.chk.active { background: rgba(245,158,11,.16); color: var(--warn); border-color: var(--warn); }
+
+/* 중량물 상세 박스 */
+.heavy-box {
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  background: rgba(79,140,255,.06);
+}
+.gear-add-row { display: flex; gap: 8px; }
+.gear-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.gear-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 14px;
+}
+
 .member-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .member-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
