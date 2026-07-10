@@ -822,7 +822,10 @@ async function refreshLogs(taskId) {
     const gradeTag = lg.grade ? `<span class="grade-badge grade-${lg.grade}">안전 ${lg.grade}등급</span>` : '';
     const hz = lg.hazards ? lg.hazards.split(',').filter(Boolean) : [];
     const handled = parseHandled(lg.heavy_handled);
-    const hzChips = hz.map((x) => `<span class="chip fme">${esc(x)}</span>`).join('');
+    const hzChips = hz.map((x) => {
+      const label = x === '고소작업' && lg.work_height ? `고소작업 ${lg.work_height}` : x;
+      return `<span class="chip fme">${esc(label)}</span>`;
+    }).join('');
     const hvChips = handled.map((it) => `<span class="chip">${esc(it.name || '중량물')} ${esc(it.weight || '')}</span>`).join('');
     item.innerHTML = `
       <div class="log-top">
@@ -878,6 +881,10 @@ function openLogModal(task, log) {
         ${LOG_HAZARDS.map((f) => `<button type="button" class="chk ${hazards.has(f) ? 'active' : ''}" data-haz="${esc(f)}">${esc(LOG_HAZARD_LABEL[f] || f)}</button>`).join('')}
       </div>
     </div>
+    <div class="field ${hazards.has('고소작업') ? '' : 'hidden'}" id="work-height-field">
+      <label>고소작업 높이${task.scaffold_height ? ` <span style="color:var(--muted);font-weight:400">(오더 비계 높이: ${esc(task.scaffold_height)})</span>` : ''}</label>
+      <input id="log-work-height" value="${esc(editing && log.work_height ? log.work_height : (task.scaffold_height || ''))}" placeholder="예: 12 m" />
+    </div>
     <div class="field">
       <label>안전등급 (자동 산정)</label>
       <div id="grade-box" class="grade-box"></div>
@@ -905,12 +912,18 @@ function openLogModal(task, log) {
       refreshGrade();
     };
   });
-  // 위험요인 토글
+  // 위험요인 토글 (고소작업 선택 시 높이 입력칸 표시, 오더 비계 높이 기본 적용)
   document.querySelectorAll('#log-haz .chk').forEach((b) => {
     b.onclick = () => {
       const f = b.dataset.haz;
-      if (hazards.has(f)) hazards.delete(f); else hazards.add(f);
+      const on = !hazards.has(f);
+      if (on) hazards.add(f); else hazards.delete(f);
       b.classList.toggle('active');
+      if (f === '고소작업') {
+        $('work-height-field').classList.toggle('hidden', !on);
+        const hi = $('log-work-height');
+        if (on && !hi.value.trim() && task.scaffold_height) hi.value = task.scaffold_height;
+      }
       refreshGrade();
     };
   });
@@ -925,6 +938,7 @@ function openLogModal(task, log) {
       content: $('log-content').value.trim(),
       hazards: [...hazards].join(','),
       heavy_handled: JSON.stringify(selectedHeavy()),
+      work_height: hazards.has('고소작업') ? $('log-work-height').value.trim() : '',
     };
     if (!payload.log_date) return toast('작업 일자를 선택하세요.');
     if (!payload.content) return toast('작업 내용을 입력하세요.');

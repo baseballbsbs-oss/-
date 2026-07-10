@@ -252,9 +252,9 @@ app.post('/api/tasks/:id/logs', h(async (req, res) => {
   if (!content || !content.trim()) throw new Error('작업 내용을 입력하세요.');
   const s = safetyFromBody(req.body);
   const { rows } = await query(
-    `INSERT INTO logs (task_id, log_date, content, author, hazards, heavy_handled, grade)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [req.params.id, log_date, content.trim(), author || '', s.hazardsStr, s.heavyStr, s.grade]);
+    `INSERT INTO logs (task_id, log_date, content, author, hazards, heavy_handled, grade, work_height)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [req.params.id, log_date, content.trim(), author || '', s.hazardsStr, s.heavyStr, s.grade, String(req.body.work_height || '').trim()]);
   res.json(rows[0]);
 }));
 
@@ -265,10 +265,10 @@ app.put('/api/logs/:id', h(async (req, res) => {
   const { log_date, content, author } = req.body;
   const s = safetyFromBody(req.body);
   const { rows } = await query(
-    `UPDATE logs SET log_date=$1, content=$2, author=$3, hazards=$4, heavy_handled=$5, grade=$6, updated_at=now()
-     WHERE id=$7 RETURNING *`,
+    `UPDATE logs SET log_date=$1, content=$2, author=$3, hazards=$4, heavy_handled=$5, grade=$6, work_height=$7, updated_at=now()
+     WHERE id=$8 RETURNING *`,
     [log_date || existing.log_date, (content ?? existing.content).trim(), author ?? existing.author,
-     s.hazardsStr, s.heavyStr, s.grade, req.params.id]);
+     s.hazardsStr, s.heavyStr, s.grade, String(req.body.work_height ?? existing.work_height ?? '').trim(), req.params.id]);
   res.json(rows[0]);
 }));
 
@@ -290,7 +290,7 @@ const STATUS_KO = { todo: '예정', doing: '진행중', done: '완료' };
 app.get('/api/export', requireAdmin, h(async (req, res) => {
   const { rows } = await query(`
     SELECT p.name AS project, m.name AS menu, m.kind, t.*,
-      l.log_date, l.author, l.content, l.hazards, l.grade, l.heavy_handled
+      l.log_date, l.author, l.content, l.hazards, l.grade, l.heavy_handled, l.work_height
     FROM projects p
     JOIN menus m ON m.project_id = p.id
     JOIN tasks t ON t.menu_id = m.id
@@ -313,7 +313,7 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
   const header = ['프로젝트', '업무메뉴', '유형', '작업오더/업무', '오더번호', '기능위치', 'FME등급',
     '품질등급', '품질입회', '산업안전/화재방호', '비계설치', '중량물(품명:무게/인양장구)',
     '설계자', '감독자', '비고', '상태', '작업일자', '작성자', '작업내용',
-    '당일안전등급', '당일위험요인', '당일취급중량물'];
+    '당일안전등급', '당일위험요인', '당일취급중량물', '당일고소작업높이'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push([
@@ -321,7 +321,7 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
       r.quality_grade, r.quality_witness, r.hazard_factors, scaffold(r), heavy(r),
       r.designer, r.supervisor, r.note, STATUS_KO[r.status] || r.status,
       r.log_date || '', r.author || '', r.content || '',
-      r.grade || '', r.hazards || '', handled(r),
+      r.grade || '', r.hazards || '', handled(r), r.work_height || '',
     ].map(csvCell).join(','));
   }
   const csv = '﻿' + lines.join('\r\n'); // BOM: 엑셀 한글 깨짐 방지
