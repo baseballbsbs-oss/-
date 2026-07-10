@@ -377,7 +377,11 @@ const fmtHandled = (v) => {
   try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a.map((it) => `${it.name || '-'}:${it.weight || '-'}`).join(' | ') : ''; }
   catch { return ''; }
 };
-async function dailyRows(projectId) {
+async function dailyRows(projectId, from, to) {
+  const cond = ['m.project_id = $1'];
+  const params = [projectId];
+  if (from) { params.push(from); cond.push(`l.log_date >= $${params.length}`); }
+  if (to) { params.push(to); cond.push(`l.log_date <= $${params.length}`); }
   return (await query(`
     SELECT l.log_date, m.name AS menu_name, t.id AS task_id, t.title AS task_title,
            t.designer, t.supervisor, l.author, l.content,
@@ -385,9 +389,9 @@ async function dailyRows(projectId) {
     FROM logs l
     JOIN tasks t ON t.id = l.task_id
     JOIN menus m ON m.id = t.menu_id
-    WHERE m.project_id = $1
+    WHERE ${cond.join(' AND ')}
     ORDER BY l.log_date DESC, m.sort_order, m.id, t.sort_order, t.id, l.id
-  `, [projectId])).rows;
+  `, params)).rows;
 }
 // 그룹 기준으로 정렬 (미지정은 뒤로). date는 기본(최신순) 유지
 function sortDaily(rows, group) {
@@ -404,7 +408,7 @@ app.get('/api/projects/:id/daily', h(async (req, res) => {
 
 // 엑셀(.xlsx) 내보내기 (?group=date|order|designer|supervisor)
 app.get('/api/projects/:id/daily.xlsx', h(async (req, res) => {
-  const rows = sortDaily(await dailyRows(req.params.id), req.query.group);
+  const rows = sortDaily(await dailyRows(req.params.id, req.query.from, req.query.to), req.query.group);
   const header = ['작업일자', '업무메뉴', '작업오더', '설계자', '감독자', '작성자', '안전등급',
     '위험요인', '취급중량물', '고소작업높이', '작업내용'];
   const aoa = [header, ...rows.map((r) => [

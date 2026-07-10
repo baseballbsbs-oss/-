@@ -41,6 +41,8 @@ const state = {
   adminEnabled: false,
   reportRows: [],
   reportGroup: 'date',
+  reportFrom: '',
+  reportTo: '',
 };
 
 const MEMBER_COLORS = ['#4f8cff', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#ec4899', '#14b8a6'];
@@ -185,7 +187,11 @@ function bindStaticEvents() {
   $('report-btn').onclick = openReport;
   $('report-back').onclick = closeReport;
   $('report-export').onclick = () => {
-    if (state.currentProjectId) downloadUrl('/api/projects/' + state.currentProjectId + '/daily.xlsx?group=' + state.reportGroup);
+    if (!state.currentProjectId) return;
+    const q = new URLSearchParams({ group: state.reportGroup });
+    if (state.reportFrom) q.set('from', state.reportFrom);
+    if (state.reportTo) q.set('to', state.reportTo);
+    downloadUrl('/api/projects/' + state.currentProjectId + '/daily.xlsx?' + q.toString());
   };
   document.querySelectorAll('#report-tabs button').forEach((b) => {
     b.onclick = () => {
@@ -194,6 +200,13 @@ function bindStaticEvents() {
       renderReport();
     };
   });
+  $('report-from').onchange = (e) => { state.reportFrom = e.target.value; renderReport(); };
+  $('report-to').onchange = (e) => { state.reportTo = e.target.value; renderReport(); };
+  $('report-clear').onclick = () => {
+    state.reportFrom = ''; state.reportTo = '';
+    $('report-from').value = ''; $('report-to').value = '';
+    renderReport();
+  };
   $('swipe-back').onclick = closeSwipe;
   $('swipe-edit').onclick = () => {
     const s = state.swipe;
@@ -1050,11 +1063,19 @@ async function openReport() {
 }
 function renderReport() {
   const group = state.reportGroup;
-  const rows = sortReport(state.reportRows, group);
-  $('report-sub').textContent = `총 ${rows.length}건`;
+  const from = state.reportFrom, to = state.reportTo;
+  const filtered = state.reportRows.filter((r) => {
+    const d = r.log_date || '';
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+  const rows = sortReport(filtered, group);
+  const ranged = from || to;
+  $('report-sub').textContent = `총 ${rows.length}건${ranged ? ` (${from || '처음'} ~ ${to || '끝'})` : ''}`;
   const body = $('report-body');
   if (!rows.length) {
-    body.innerHTML = '<div class="empty-hint">기록된 일별 작업사항이 없습니다.</div>';
+    body.innerHTML = `<div class="empty-hint">${ranged ? '선택한 기간에 기록이 없습니다.' : '기록된 일별 작업사항이 없습니다.'}</div>`;
     return;
   }
   const gradeCell = (g) => g ? `<span class="grade-badge grade-${g}">${esc(g)}</span>` : '-';

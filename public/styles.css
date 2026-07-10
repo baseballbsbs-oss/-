@@ -206,6 +206,13 @@ body {
 }
 .report-tabs { margin: 10px 14px 4px; }
 .report-tabs button { padding: 9px 6px; font-size: 13px; }
+.report-filter { display: flex; align-items: center; gap: 6px; margin: 8px 14px 4px; }
+.report-filter input[type="date"] {
+  flex: 1; min-width: 0; background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+}
+.report-filter .rf-sep { color: var(--muted); }
+.report-filter #report-clear { flex: 0 0 auto; padding: 8px 12px; font-size: 13px; }
 .report-table tr.rp-group td {
   background: rgba(79,140,255,.12); color: var(--text); font-weight: 800; font-size: 13px;
   position: sticky; left: 0; border-top: 2px solid var(--accent);
