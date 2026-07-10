@@ -39,6 +39,8 @@ const state = {
   swipe: null, // { menu, tasks, index }
   isAdmin: false,
   adminEnabled: false,
+  reportRows: [],
+  reportGroup: 'date',
 };
 
 const MEMBER_COLORS = ['#4f8cff', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#ec4899', '#14b8a6'];
@@ -183,8 +185,15 @@ function bindStaticEvents() {
   $('report-btn').onclick = openReport;
   $('report-back').onclick = closeReport;
   $('report-export').onclick = () => {
-    if (state.currentProjectId) downloadUrl('/api/projects/' + state.currentProjectId + '/daily.xlsx');
+    if (state.currentProjectId) downloadUrl('/api/projects/' + state.currentProjectId + '/daily.xlsx?group=' + state.reportGroup);
   };
+  document.querySelectorAll('#report-tabs button').forEach((b) => {
+    b.onclick = () => {
+      state.reportGroup = b.dataset.g;
+      document.querySelectorAll('#report-tabs button').forEach((x) => x.classList.toggle('active', x === b));
+      renderReport();
+    };
+  });
   $('swipe-back').onclick = closeSwipe;
   $('swipe-edit').onclick = () => {
     const s = state.swipe;
@@ -1017,18 +1026,31 @@ function openLogModal(task, log) {
   };
 }
 /* ============================ 일별 작업사항 정리 (표) ============================ */
+const REPORT_GROUPS = {
+  date: { label: '📅', key: (r) => r.log_date || '(날짜없음)' },
+  order: { label: '작업오더', key: (r) => r.task_title || '(제목없음)' },
+  designer: { label: '설계자', key: (r) => r.designer || '(미지정)' },
+  supervisor: { label: '감독자', key: (r) => r.supervisor || '(미지정)' },
+};
+function sortReport(rows, group) {
+  const dateDesc = (a, b) => String(b.log_date).localeCompare(String(a.log_date));
+  const kf = { order: (r) => r.task_title || '', designer: (r) => r.designer || '￿', supervisor: (r) => r.supervisor || '￿' };
+  if (!kf[group]) return rows.slice();
+  return rows.slice().sort((a, b) => kf[group](a).localeCompare(kf[group](b), 'ko') || dateDesc(a, b));
+}
 async function openReport() {
   if (!state.currentProjectId) return toast('먼저 프로젝트를 선택하세요.');
   $('view-menus').classList.add('hidden');
   $('add-menu').classList.add('hidden');
   $('view-report').classList.remove('hidden');
   $('report-body').innerHTML = '<div class="empty-hint">불러오는 중…</div>';
-  let rows;
-  try { rows = await api.get('/api/projects/' + state.currentProjectId + '/daily'); }
+  try { state.reportRows = await api.get('/api/projects/' + state.currentProjectId + '/daily'); }
   catch (e) { $('report-body').innerHTML = `<div class="empty-hint">불러오기 실패: ${esc(e.message)}</div>`; return; }
-  renderReport(rows);
+  renderReport();
 }
-function renderReport(rows) {
+function renderReport() {
+  const group = state.reportGroup;
+  const rows = sortReport(state.reportRows, group);
   $('report-sub').textContent = `총 ${rows.length}건`;
   const body = $('report-body');
   if (!rows.length) {
@@ -1040,20 +1062,27 @@ function renderReport(rows) {
     const a = parseHandled(v);
     return a.length ? a.map((it) => `${esc(it.name || '-')}:${esc(it.weight || '-')}`).join(', ') : '-';
   };
-  // 일자별로 그룹 (첫 행에만 일자 표시)
+  const gInfo = REPORT_GROUPS[group];
   let html = `<div class="report-scroll"><table class="report-table">
     <thead><tr>
-      <th>일자</th><th>업무메뉴</th><th>작업오더</th><th>작성자</th>
+      <th>일자</th><th>업무메뉴</th><th>작업오더</th><th>설계자</th><th>감독자</th><th>작성자</th>
       <th>등급</th><th>위험요인</th><th>취급중량물</th><th>고소높이</th><th>작업내용</th>
     </tr></thead><tbody>`;
-  let prevDate = null;
+  let prevKey = null;
   for (const r of rows) {
-    const newDate = r.log_date !== prevDate;
-    prevDate = r.log_date;
-    html += `<tr class="${newDate ? 'date-start' : ''}">
-      <td class="rp-date">${newDate ? esc(r.log_date) : ''}</td>
+    const k = gInfo.key(r);
+    if (k !== prevKey) {
+      prevKey = k;
+      const cnt = rows.filter((x) => gInfo.key(x) === k).length;
+      const title = group === 'date' ? `📅 ${esc(k)}` : `${gInfo.label} · ${esc(k)}`;
+      html += `<tr class="rp-group"><td colspan="11">${title} <span class="rp-count">${cnt}건</span></td></tr>`;
+    }
+    html += `<tr>
+      <td class="rp-date">${esc(r.log_date)}</td>
       <td>${esc(r.menu_name)}</td>
       <td>${esc(r.task_title)}</td>
+      <td>${esc(r.designer) || '-'}</td>
+      <td>${esc(r.supervisor) || '-'}</td>
       <td>${esc(r.author) || '-'}</td>
       <td>${gradeCell(r.grade)}</td>
       <td>${esc(r.hazards) || '-'}</td>

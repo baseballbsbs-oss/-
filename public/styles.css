@@ -204,8 +204,14 @@ body {
   position: sticky; top: 0; background: var(--bg-2); color: var(--muted);
   font-size: 12px; font-weight: 700; z-index: 1;
 }
-.report-table tr.date-start td { border-top: 2px solid var(--accent); }
-.report-table .rp-date { font-weight: 700; color: var(--accent-2); }
+.report-tabs { margin: 10px 14px 4px; }
+.report-tabs button { padding: 9px 6px; font-size: 13px; }
+.report-table tr.rp-group td {
+  background: rgba(79,140,255,.12); color: var(--text); font-weight: 800; font-size: 13px;
+  position: sticky; left: 0; border-top: 2px solid var(--accent);
+}
+.rp-count { color: var(--muted); font-weight: 600; font-size: 12px; margin-left: 6px; }
+.report-table .rp-date { color: var(--accent-2); }
 .report-table .rp-content { white-space: normal; min-width: 200px; max-width: 320px; }
 .report-table .grade-badge { font-size: 11px; padding: 1px 7px; }
 

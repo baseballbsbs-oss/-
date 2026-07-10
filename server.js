@@ -379,7 +379,8 @@ const fmtHandled = (v) => {
 };
 async function dailyRows(projectId) {
   return (await query(`
-    SELECT l.log_date, m.name AS menu_name, t.title AS task_title, l.author, l.content,
+    SELECT l.log_date, m.name AS menu_name, t.id AS task_id, t.title AS task_title,
+           t.designer, t.supervisor, l.author, l.content,
            l.grade, l.hazards, l.heavy_handled, l.work_height
     FROM logs l
     JOIN tasks t ON t.id = l.task_id
@@ -388,23 +389,30 @@ async function dailyRows(projectId) {
     ORDER BY l.log_date DESC, m.sort_order, m.id, t.sort_order, t.id, l.id
   `, [projectId])).rows;
 }
+// 그룹 기준으로 정렬 (미지정은 뒤로). date는 기본(최신순) 유지
+function sortDaily(rows, group) {
+  const dateDesc = (a, b) => String(b.log_date).localeCompare(String(a.log_date));
+  const keyOf = { order: (r) => r.task_title || '', designer: (r) => r.designer || '￿', supervisor: (r) => r.supervisor || '￿' };
+  if (!keyOf[group]) return rows;
+  return [...rows].sort((a, b) => keyOf[group](a).localeCompare(keyOf[group](b), 'ko') || dateDesc(a, b));
+}
 
 // JSON (표 렌더링용)
 app.get('/api/projects/:id/daily', h(async (req, res) => {
   res.json(await dailyRows(req.params.id));
 }));
 
-// 엑셀(.xlsx) 내보내기
+// 엑셀(.xlsx) 내보내기 (?group=date|order|designer|supervisor)
 app.get('/api/projects/:id/daily.xlsx', h(async (req, res) => {
-  const proj = (await query('SELECT name FROM projects WHERE id = $1', [req.params.id])).rows[0];
-  const rows = await dailyRows(req.params.id);
-  const header = ['작업일자', '업무메뉴', '작업오더', '작성자', '안전등급', '위험요인', '취급중량물', '고소작업높이', '작업내용'];
+  const rows = sortDaily(await dailyRows(req.params.id), req.query.group);
+  const header = ['작업일자', '업무메뉴', '작업오더', '설계자', '감독자', '작성자', '안전등급',
+    '위험요인', '취급중량물', '고소작업높이', '작업내용'];
   const aoa = [header, ...rows.map((r) => [
-    r.log_date || '', r.menu_name || '', r.task_title || '', r.author || '', r.grade || '',
-    r.hazards || '', fmtHandled(r.heavy_handled), r.work_height || '', r.content || '',
+    r.log_date || '', r.menu_name || '', r.task_title || '', r.designer || '', r.supervisor || '',
+    r.author || '', r.grade || '', r.hazards || '', fmtHandled(r.heavy_handled), r.work_height || '', r.content || '',
   ])];
   const ws = xlsx.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 40 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 40 }];
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, '일별작업사항');
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
