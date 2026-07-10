@@ -52,8 +52,18 @@ const HEAVY = '중량물';
 
 // hazard_factors(콤마 문자열) ↔ 배열
 const parseFactors = (s) => (s ? String(s).split(',').map((x) => x.trim()).filter(Boolean) : []);
-// lifting_gear(JSON 배열 문자열) ↔ 배열
+// lifting_gear(JSON 배열 문자열) ↔ 배열  (구버전 호환)
 const parseGear = (s) => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+// heavy_items(JSON: [{name,weight,gear}]) ↔ 배열
+const parseHeavyItems = (s) => { try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+// 구버전(heavy_weight/lifting_gear) → 신버전 항목으로 변환
+function migrateHeavy(t) {
+  const items = parseHeavyItems(t.heavy_items);
+  if (items.length) return items;
+  const g = parseGear(t.lifting_gear);
+  if (t.heavy_weight || g.length) return [{ name: '', weight: t.heavy_weight || '', gear: g.join(', ') }];
+  return [];
+}
 
 /* ============================ 유틸 ============================ */
 const $ = (id) => document.getElementById(id);
@@ -414,7 +424,7 @@ function openTaskModal(menu, task) {
   const isWO = menu.kind === 'work_order';
   const t = task || {};
   const factors = new Set(parseFactors(t.hazard_factors));
-  let gear = parseGear(t.lifting_gear);
+  let heavyItems = migrateHeavy(t);
   let scaf = t.scaffold || '';
 
   const optList = (list, cur) =>
@@ -434,14 +444,16 @@ function openTaskModal(menu, task) {
       </div>
     </div>
     <div class="field heavy-box ${factors.has(HEAVY) ? '' : 'hidden'}" id="heavy-section">
-      <label>중량물 무게</label>
-      <input id="f-heavy_weight" value="${esc(t.heavy_weight)}" placeholder="예: 2.5 ton" />
-      <label style="margin-top:12px">인양장구 (여러 개 추가 가능)</label>
-      <div class="gear-add-row">
-        <input id="gear-input" placeholder="예: 20t 크레인, 샤클 3.2t" />
-        <button type="button" class="btn btn-ghost" id="gear-add" style="flex:0 0 auto">추가</button>
+      <label>중량물 목록 (여러 개 추가 가능)</label>
+      <div class="heavy-add">
+        <input id="hv-name" placeholder="품명 (예: 로터)" />
+        <div class="heavy-add-row2">
+          <input id="hv-weight" placeholder="무게 (예: 1t)" />
+          <input id="hv-gear" placeholder="인양장구 (예: 체인블록)" />
+          <button type="button" class="btn btn-ghost" id="hv-add" style="flex:0 0 auto">추가</button>
+        </div>
       </div>
-      <div id="gear-list" class="gear-list"></div>
+      <div id="heavy-list" class="gear-list"></div>
     </div>
     <div class="field">
       <label>비계설치 여부</label>
@@ -497,27 +509,32 @@ function openTaskModal(menu, task) {
         if (f === HEAVY) $('heavy-section').classList.toggle('hidden', !factors.has(HEAVY));
       };
     });
-    // 인양장구 목록 (여러 개)
-    const renderGear = () => {
-      const box = $('gear-list');
-      box.innerHTML = gear.length ? '' : '<div class="empty-hint" style="padding:6px">등록된 인양장구 없음</div>';
-      gear.forEach((g, i) => {
+    // 중량물 목록 (품명 : 무게 / 인양장구, 여러 개)
+    const renderHeavy = () => {
+      const box = $('heavy-list');
+      box.innerHTML = heavyItems.length ? '' : '<div class="empty-hint" style="padding:6px">등록된 중량물 없음</div>';
+      heavyItems.forEach((it, i) => {
         const row = el('div', 'gear-item');
-        row.innerHTML = `<span>${esc(g)}</span><button type="button" class="mini-btn danger">✕</button>`;
-        row.querySelector('button').onclick = () => { gear.splice(i, 1); renderGear(); };
+        const gearTxt = it.gear ? `, 인양장구 ${esc(it.gear)}` : '';
+        row.innerHTML = `<span><b>${esc(it.name || '-')}</b> : ${esc(it.weight || '-')}${gearTxt}</span><button type="button" class="mini-btn danger">✕</button>`;
+        row.querySelector('button').onclick = () => { heavyItems.splice(i, 1); renderHeavy(); };
         box.appendChild(row);
       });
     };
-    renderGear();
-    const addGear = () => {
-      const v = $('gear-input').value.trim();
-      if (!v) return;
-      gear.push(v);
-      $('gear-input').value = '';
-      renderGear();
+    renderHeavy();
+    const addHeavy = () => {
+      const name = $('hv-name').value.trim();
+      const weight = $('hv-weight').value.trim();
+      const gearv = $('hv-gear').value.trim();
+      if (!name && !weight && !gearv) return;
+      heavyItems.push({ name, weight, gear: gearv });
+      $('hv-name').value = ''; $('hv-weight').value = ''; $('hv-gear').value = '';
+      renderHeavy();
+      $('hv-name').focus();
     };
-    $('gear-add').onclick = addGear;
-    $('gear-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addGear(); } });
+    $('hv-add').onclick = addHeavy;
+    ['hv-name', 'hv-weight', 'hv-gear'].forEach((id) =>
+      $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addHeavy(); } }));
     // 비계 세그먼트 (Y 선택 시 높이 입력)
     const markScaf = () => document.querySelectorAll('#scaf-seg button').forEach((b) =>
       b.classList.toggle('active', b.dataset.scaf === scaf));
@@ -544,8 +561,9 @@ function openTaskModal(menu, task) {
         hazard_factors: SAFETY_FACTORS.filter((f) => factors.has(f)).join(','),
         scaffold: scaf,
         scaffold_height: scaf === 'Y' ? getVal('f-scaffold_height') : '',
-        heavy_weight: hasHeavy ? getVal('f-heavy_weight') : '',
-        lifting_gear: hasHeavy ? JSON.stringify(gear) : '',
+        heavy_items: hasHeavy ? JSON.stringify(heavyItems) : '',
+        heavy_weight: '',
+        lifting_gear: '',
         designer: getVal('f-designer'),
         supervisor: getVal('f-supervisor'),
       });
@@ -748,15 +766,16 @@ function renderWOCard(menu, t) {
       ['진행상태', { todo: '예정', doing: '진행중', done: '완료' }[t.status] || '예정'],
     ];
     const scafText = t.scaffold === 'Y' ? `설치 (높이 ${esc(t.scaffold_height) || '-'})` : (t.scaffold === 'N' ? '미설치' : '');
-    const gearArr = parseGear(t.lifting_gear);
+    const hItems = migrateHeavy(t);
+    const heavyHtml = hItems.map((it) =>
+      `<b>${esc(it.name || '-')}</b> : ${esc(it.weight || '-')}${it.gear ? ` · 인양장구 ${esc(it.gear)}` : ''}`).join('<br>');
     const factorChips = parseFactors(t.hazard_factors)
       .map((x) => `<span class="chip fme" style="margin:2px 4px 2px 0;display:inline-block">${esc(x)}</span>`).join('');
     fields = '<div class="wo-grid">' + f.map(([l, v]) =>
       `<div class="wo-field"><div class="wo-label">${l}</div><div class="wo-value">${esc(v) || '-'}</div></div>`).join('')
       + (scafText ? `<div class="wo-field"><div class="wo-label">비계설치</div><div class="wo-value">${scafText}</div></div>` : '')
       + (factorChips ? `<div class="wo-field full"><div class="wo-label">산업안전 / 화재방호</div><div class="wo-value">${factorChips}</div></div>` : '')
-      + (t.heavy_weight ? `<div class="wo-field full"><div class="wo-label">중량물 무게</div><div class="wo-value">${esc(t.heavy_weight)}</div></div>` : '')
-      + (gearArr.length ? `<div class="wo-field full"><div class="wo-label">인양장구</div><div class="wo-value">${gearArr.map(esc).join(' · ')}</div></div>` : '')
+      + (heavyHtml ? `<div class="wo-field full"><div class="wo-label">중량물</div><div class="wo-value">${heavyHtml}</div></div>` : '')
       + (t.note ? `<div class="wo-field full"><div class="wo-label">비고</div><div class="wo-value">${esc(t.note)}</div></div>` : '')
       + '</div>';
   } else {

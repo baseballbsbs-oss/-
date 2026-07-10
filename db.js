@@ -79,8 +79,9 @@ export async function initDb() {
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS quality_witness TEXT NOT NULL DEFAULT '';  -- 품질입회
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scaffold        TEXT NOT NULL DEFAULT '';  -- 비계설치 Y/N
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS scaffold_height TEXT NOT NULL DEFAULT '';  -- 비계 높이
-    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS heavy_weight    TEXT NOT NULL DEFAULT '';  -- 중량물 무게
-    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lifting_gear    TEXT NOT NULL DEFAULT '';  -- 인양장구(JSON 배열)
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS heavy_weight    TEXT NOT NULL DEFAULT '';  -- (구)중량물 무게
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lifting_gear    TEXT NOT NULL DEFAULT '';  -- (구)인양장구(JSON 배열)
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS heavy_items     TEXT NOT NULL DEFAULT '';  -- 중량물 목록(JSON: [{name,weight,gear}])
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS designer        TEXT NOT NULL DEFAULT '';  -- 설계자
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS supervisor      TEXT NOT NULL DEFAULT '';  -- 감독자
 

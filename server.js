@@ -143,7 +143,7 @@ app.delete('/api/menus/:id', h(async (req, res) => {
 // title/status 외 나머지 컬럼은 기본값 ''
 const TASK_COLS = ['title', 'order_number', 'functional_location', 'fme_grade', 'hazard_factors',
   'note', 'status', 'quality_grade', 'quality_witness', 'scaffold', 'scaffold_height',
-  'heavy_weight', 'lifting_gear', 'designer', 'supervisor'];
+  'heavy_weight', 'lifting_gear', 'heavy_items', 'designer', 'supervisor'];
 const taskDefault = (c) => (c === 'status' ? 'todo' : '');
 
 app.post('/api/menus/:id/tasks', h(async (req, res) => {
@@ -267,16 +267,22 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
     LEFT JOIN logs l ON l.task_id = t.id
     ORDER BY p.id, m.sort_order, m.id, t.sort_order, t.id, l.log_date, l.id
   `);
-  const gear = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a.join(' / ') : (v || ''); } catch { return v || ''; } };
+  const oldGear = (v) => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a.join(', ') : ''; } catch { return ''; } };
+  const heavy = (r) => {
+    let items = [];
+    try { const a = JSON.parse(r.heavy_items || '[]'); if (Array.isArray(a)) items = a; } catch { /* noop */ }
+    if (!items.length && (r.heavy_weight || oldGear(r.lifting_gear))) items = [{ name: '', weight: r.heavy_weight, gear: oldGear(r.lifting_gear) }];
+    return items.map((it) => `${it.name || '-'} : ${it.weight || '-'}${it.gear ? ' / 인양장구 ' + it.gear : ''}`).join(' | ');
+  };
   const scaffold = (r) => r.scaffold === 'Y' ? `설치(높이 ${r.scaffold_height || '-'})` : (r.scaffold === 'N' ? '미설치' : '');
   const header = ['프로젝트', '업무메뉴', '유형', '작업오더/업무', '오더번호', '기능위치', 'FME등급',
-    '품질등급', '품질입회', '산업안전/화재방호', '비계설치', '중량물무게', '인양장구',
+    '품질등급', '품질입회', '산업안전/화재방호', '비계설치', '중량물(품명:무게/인양장구)',
     '설계자', '감독자', '비고', '상태', '작업일자', '작성자', '작업내용'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push([
       r.project, r.menu, KIND_KO[r.kind] || r.kind, r.title, r.order_number, r.functional_location, r.fme_grade,
-      r.quality_grade, r.quality_witness, r.hazard_factors, scaffold(r), r.heavy_weight, gear(r.lifting_gear),
+      r.quality_grade, r.quality_witness, r.hazard_factors, scaffold(r), heavy(r),
       r.designer, r.supervisor, r.note, STATUS_KO[r.status] || r.status,
       r.log_date || '', r.author || '', r.content || '',
     ].map(csvCell).join(','));

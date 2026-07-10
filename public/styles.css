@@ -223,6 +223,9 @@ body {
   background: rgba(79,140,255,.06);
 }
 .gear-add-row { display: flex; gap: 8px; }
+.heavy-add { display: flex; flex-direction: column; gap: 8px; }
+.heavy-add-row2 { display: flex; gap: 8px; }
+.heavy-add-row2 input { min-width: 0; }
 .gear-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .gear-item {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
