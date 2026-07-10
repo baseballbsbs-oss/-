@@ -360,8 +360,65 @@ function renderMenuCard(m) {
   const addRow = el('div', 'add-task-row', isWO ? '＋ 작업오더 추가' : '＋ 하부 업무 추가');
   addRow.onclick = () => openTaskModal(m, null);
   list.appendChild(addRow);
+  if (isWO) {
+    const impRow = el('div', 'add-task-row import-row', '⬆ 엑셀로 여러 개 추가');
+    impRow.onclick = () => openImportModal(m);
+    list.appendChild(impRow);
+  }
   card.appendChild(list);
   return card;
+}
+
+function openImportModal(menu) {
+  openModal(`
+    <h2>엑셀로 작업오더 추가</h2>
+    <p style="color:var(--muted);font-size:13px;margin-top:-8px">
+      엑셀(.xlsx) 또는 CSV 파일로 여러 작업오더를 한 번에 추가합니다.
+      먼저 양식을 내려받아 채운 뒤 업로드하세요.</p>
+    <button class="btn btn-ghost" id="tmpl-btn">📄 입력 양식(엑셀) 다운로드</button>
+    <div class="import-help">
+      · <b>제목</b>은 필수입니다.<br>
+      · 산업안전/화재방호는 쉼표로 구분 (예: <code>고온/고압, 중량물</code>)<br>
+      · 비계설치는 <code>Y</code>/<code>N</code>, 중량물은 <code>품명:무게:인양장구</code> 형식, 여러 개는 <code>;</code>로 구분<br>
+      &nbsp;&nbsp;(예: <code>로터:1t:체인블록; 베어링:0.03t</code>)
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label>파일 선택</label>
+      <input type="file" id="import-file" accept=".xlsx,.xls,.csv" />
+    </div>
+    <div id="import-result"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="cancel">닫기</button>
+      <button class="btn btn-primary" id="do-import">업로드</button>
+    </div>
+  `);
+  $('cancel').onclick = closeModal;
+  $('tmpl-btn').onclick = () => downloadUrl('/api/tasks-template');
+  $('do-import').onclick = async () => {
+    const f = $('import-file').files[0];
+    if (!f) return toast('파일을 선택하세요.');
+    const btn = $('do-import');
+    btn.disabled = true; btn.textContent = '업로드 중…';
+    try {
+      const res = await fetch('/api/menus/' + menu.id + '/tasks/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'X-Client-Id': clientId },
+        body: f,
+      });
+      if (res.status === 401) { showLogin(); return; }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '업로드 실패');
+      const errHtml = (data.errors && data.errors.length)
+        ? `<div class="import-err">건너뜀 ${data.errors.length}건:<br>${data.errors.map(esc).join('<br>')}</div>` : '';
+      $('import-result').innerHTML = `<div class="import-ok">✅ ${data.count}건 추가되었습니다.</div>${errHtml}`;
+      await loadMenus();
+      toast(`${data.count}건 추가되었습니다.`);
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      btn.disabled = false; btn.textContent = '업로드';
+    }
+  };
 }
 function renderTaskRow(menu, t, isWO) {
   const row = el('div', 'task-row');
@@ -630,14 +687,18 @@ async function forceUnlock(taskId) {
   try { await api.post('/api/tasks/' + taskId + '/force-unlock', {}); return true; }
   catch (e) { toast(e.message); return false; }
 }
-// 관리자 데이터 내보내기 (CSV 다운로드)
-function exportData() {
+// 파일 다운로드 (인증 쿠키 포함, 같은 출처)
+function downloadUrl(url) {
   const a = document.createElement('a');
-  a.href = '/api/export';
+  a.href = url;
   a.download = '';
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+// 관리자 데이터 내보내기 (CSV 다운로드)
+function exportData() {
+  downloadUrl('/api/export');
   toast('내보내기를 시작했습니다.');
 }
 

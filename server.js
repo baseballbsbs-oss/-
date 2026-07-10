@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import xlsx from 'xlsx';
 import { query, initDb } from './db.js';
 import { AUTH_ENABLED, ADMIN_ENABLED, roleForPassword, setAuthCookie, clearAuthCookie,
          isAuthed, isAdmin, requireAuth, requireAdmin } from './auth.js';
@@ -172,20 +173,112 @@ const TASK_COLS = ['title', 'order_number', 'functional_location', 'fme_grade', 
   'heavy_weight', 'lifting_gear', 'heavy_items', 'designer', 'supervisor'];
 const taskDefault = (c) => (c === 'status' ? 'todo' : '');
 
+async function createTask(menuId, b, sortOrder) {
+  const cols = ['menu_id', ...TASK_COLS, 'sort_order'];
+  const vals = [menuId,
+    ...TASK_COLS.map((c) => (b[c] !== undefined && b[c] !== null ? b[c] : taskDefault(c))),
+    sortOrder];
+  vals[1] = String(vals[1]).trim(); // title
+  const ph = cols.map((_, i) => '$' + (i + 1)).join(', ');
+  const { rows } = await query(
+    `INSERT INTO tasks (${cols.join(', ')}) VALUES (${ph}) RETURNING *`, vals);
+  return rows[0];
+}
+
 app.post('/api/menus/:id/tasks', h(async (req, res) => {
   const b = req.body;
   if (!b.title || !b.title.trim()) throw new Error('제목을 입력하세요.');
   const max = (await query(
     'SELECT COALESCE(MAX(sort_order), 0) AS m FROM tasks WHERE menu_id = $1', [req.params.id])).rows[0].m;
-  const cols = ['menu_id', ...TASK_COLS, 'sort_order'];
-  const vals = [req.params.id,
-    ...TASK_COLS.map((c) => (b[c] !== undefined && b[c] !== null ? b[c] : taskDefault(c))),
-    max + 1];
-  vals[1] = String(vals[1]).trim(); // title
-  const ph = cols.map((_, i) => '$' + (i + 1)).join(', ');
-  const { rows } = await query(
-    `INSERT INTO tasks (${cols.join(', ')}) VALUES (${ph}) RETURNING *`, vals);
-  res.json(rows[0]);
+  res.json(await createTask(req.params.id, b, max + 1));
+}));
+
+/* ------------------- 엑셀 업로드로 작업오더 일괄 추가 ------------------- */
+const IMPORT_HEADERS = ['제목', '오더번호', '기능위치', 'FME등급', '품질등급', '품질입회',
+  '산업안전/화재방호', '비계설치', '비계높이', '중량물', '설계자', '감독자', '비고'];
+
+const pick = (row, keys) => {
+  for (const k of keys) {
+    const v = row[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+  }
+  return '';
+};
+function parseScaffoldCell(v) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  if (/^(y|o|예|설치|true|1)$/i.test(s)) return 'Y';
+  if (/^(n|x|아니오?|미설치|false|0)$/i.test(s)) return 'N';
+  return '';
+}
+// "로터:1t:체인블록; 베어링:0.03t" → [{name,weight,gear}]
+function parseHeavyCell(v) {
+  if (!v) return [];
+  return String(v).split(/[;\n]/).map((part) => {
+    const p = part.split(':').map((x) => x.trim());
+    if (!p[0] && !p[1]) return null;
+    return { name: p[0] || '', weight: p[1] || '', gear: p[2] || '' };
+  }).filter(Boolean);
+}
+function taskFromRow(row) {
+  const b = { status: 'todo' };
+  b.title = pick(row, ['제목', 'title', '작업오더', '작업오더/업무']);
+  b.order_number = pick(row, ['오더번호', 'order_number']);
+  b.functional_location = pick(row, ['기능위치', 'functional_location']);
+  b.fme_grade = pick(row, ['FME등급', 'FME 등급', 'fme_grade']);
+  b.quality_grade = pick(row, ['품질등급', 'quality_grade']);
+  b.quality_witness = pick(row, ['품질입회', 'quality_witness']);
+  const factors = pick(row, ['산업안전/화재방호', '산업안전', '유해위험요소', '위험요소'])
+    .split(',').map((x) => x.trim()).filter(Boolean);
+  const heavy = parseHeavyCell(pick(row, ['중량물', '중량물목록']));
+  if (heavy.length && !factors.includes('중량물')) factors.push('중량물');
+  b.hazard_factors = factors.join(',');
+  b.heavy_items = JSON.stringify(heavy);
+  b.scaffold = parseScaffoldCell(pick(row, ['비계설치', '비계', 'scaffold']));
+  b.scaffold_height = pick(row, ['비계높이', '비계 높이', 'scaffold_height']);
+  b.designer = pick(row, ['설계자', 'designer']);
+  b.supervisor = pick(row, ['감독자', 'supervisor']);
+  b.note = pick(row, ['비고', '추가세부사항', 'note']);
+  return b;
+}
+
+// 업로드 양식(엑셀) 다운로드
+app.get('/api/tasks-template', h(async (req, res) => {
+  const example = ['MFWP A 분해점검', '10012345', '2-MFW-P-001A', 'ZONE 2', 'A', 'KPS-INSP',
+    '고온/고압, 중량물', 'Y', '12 m', '로터:1t:체인블록; 베어링:0.03t', '김설계', '박감독', '예시 비고'];
+  const ws = xlsx.utils.aoa_to_sheet([IMPORT_HEADERS, example]);
+  ws['!cols'] = IMPORT_HEADERS.map(() => ({ wch: 16 }));
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, '작업오더');
+  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename="work-order-template.xlsx"');
+  res.send(buf);
+}));
+
+// 엑셀/CSV 파일 본문(raw)으로 작업오더 일괄 추가
+app.post('/api/menus/:id/tasks/import', express.raw({ type: '*/*', limit: '10mb' }), h(async (req, res) => {
+  if (!req.body || !req.body.length) throw new Error('업로드된 파일이 없습니다.');
+  let rows;
+  try {
+    const wb = xlsx.read(req.body, { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    rows = xlsx.utils.sheet_to_json(ws, { defval: '' });
+  } catch {
+    throw new Error('엑셀 파일을 읽을 수 없습니다. (.xlsx 또는 .csv)');
+  }
+  if (!rows.length) throw new Error('데이터 행이 없습니다.');
+  let max = (await query(
+    'SELECT COALESCE(MAX(sort_order), 0) AS m FROM tasks WHERE menu_id = $1', [req.params.id])).rows[0].m;
+  let count = 0;
+  const errors = [];
+  for (let i = 0; i < rows.length; i++) {
+    const b = taskFromRow(rows[i]);
+    if (!b.title) { errors.push(`${i + 2}행: 제목이 비어 있어 건너뜀`); continue; }
+    try { await createTask(req.params.id, b, ++max); count += 1; }
+    catch (e) { errors.push(`${i + 2}행: ${e.message}`); }
+  }
+  res.json({ ok: true, count, errors });
 }));
 
 app.put('/api/tasks/:id', h(async (req, res) => {
