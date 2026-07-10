@@ -180,6 +180,11 @@ function bindStaticEvents() {
   $('del-project').onclick = deleteCurrentProject;
   $('project-select').onchange = (e) => selectProject(Number(e.target.value));
   $('add-menu').onclick = () => openMenuModal();
+  $('report-btn').onclick = openReport;
+  $('report-back').onclick = closeReport;
+  $('report-export').onclick = () => {
+    if (state.currentProjectId) downloadUrl('/api/projects/' + state.currentProjectId + '/daily.xlsx');
+  };
   $('swipe-back').onclick = closeSwipe;
   $('swipe-edit').onclick = () => {
     const s = state.swipe;
@@ -1011,6 +1016,61 @@ function openLogModal(task, log) {
     toast('기록되었습니다.');
   };
 }
+/* ============================ 일별 작업사항 정리 (표) ============================ */
+async function openReport() {
+  if (!state.currentProjectId) return toast('먼저 프로젝트를 선택하세요.');
+  $('view-menus').classList.add('hidden');
+  $('add-menu').classList.add('hidden');
+  $('view-report').classList.remove('hidden');
+  $('report-body').innerHTML = '<div class="empty-hint">불러오는 중…</div>';
+  let rows;
+  try { rows = await api.get('/api/projects/' + state.currentProjectId + '/daily'); }
+  catch (e) { $('report-body').innerHTML = `<div class="empty-hint">불러오기 실패: ${esc(e.message)}</div>`; return; }
+  renderReport(rows);
+}
+function renderReport(rows) {
+  $('report-sub').textContent = `총 ${rows.length}건`;
+  const body = $('report-body');
+  if (!rows.length) {
+    body.innerHTML = '<div class="empty-hint">기록된 일별 작업사항이 없습니다.</div>';
+    return;
+  }
+  const gradeCell = (g) => g ? `<span class="grade-badge grade-${g}">${esc(g)}</span>` : '-';
+  const handledCell = (v) => {
+    const a = parseHandled(v);
+    return a.length ? a.map((it) => `${esc(it.name || '-')}:${esc(it.weight || '-')}`).join(', ') : '-';
+  };
+  // 일자별로 그룹 (첫 행에만 일자 표시)
+  let html = `<div class="report-scroll"><table class="report-table">
+    <thead><tr>
+      <th>일자</th><th>업무메뉴</th><th>작업오더</th><th>작성자</th>
+      <th>등급</th><th>위험요인</th><th>취급중량물</th><th>고소높이</th><th>작업내용</th>
+    </tr></thead><tbody>`;
+  let prevDate = null;
+  for (const r of rows) {
+    const newDate = r.log_date !== prevDate;
+    prevDate = r.log_date;
+    html += `<tr class="${newDate ? 'date-start' : ''}">
+      <td class="rp-date">${newDate ? esc(r.log_date) : ''}</td>
+      <td>${esc(r.menu_name)}</td>
+      <td>${esc(r.task_title)}</td>
+      <td>${esc(r.author) || '-'}</td>
+      <td>${gradeCell(r.grade)}</td>
+      <td>${esc(r.hazards) || '-'}</td>
+      <td>${handledCell(r.heavy_handled)}</td>
+      <td>${esc(r.work_height) || '-'}</td>
+      <td class="rp-content">${esc(r.content)}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  body.innerHTML = html;
+}
+function closeReport() {
+  $('view-report').classList.add('hidden');
+  $('view-menus').classList.remove('hidden');
+  $('add-menu').classList.remove('hidden');
+}
+
 function closeSwipe() {
   clearInterval(swipeHeartbeat);
   if (state.swipe && state.swipe.activeTaskId) unlockTask(state.swipe.activeTaskId);

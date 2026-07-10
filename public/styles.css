@@ -193,6 +193,22 @@ body {
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
 .dot.active { background: var(--accent); width: 20px; border-radius: 4px; }
 
+/* ---------------- 일별 정리 표 ---------------- */
+.report-body { padding: 4px 0 40px; }
+.report-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.report-table { border-collapse: collapse; width: 100%; font-size: 13px; white-space: nowrap; }
+.report-table th, .report-table td {
+  border-bottom: 1px solid var(--border); padding: 9px 10px; text-align: left; vertical-align: top;
+}
+.report-table thead th {
+  position: sticky; top: 0; background: var(--bg-2); color: var(--muted);
+  font-size: 12px; font-weight: 700; z-index: 1;
+}
+.report-table tr.date-start td { border-top: 2px solid var(--accent); }
+.report-table .rp-date { font-weight: 700; color: var(--accent-2); }
+.report-table .rp-content { white-space: normal; min-width: 200px; max-width: 320px; }
+.report-table .grade-badge { font-size: 11px; padding: 1px 7px; }
+
 /* ---------------- 모달 ---------------- */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 40;

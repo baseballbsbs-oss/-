@@ -16,6 +16,7 @@
     </div>
     <div class="topbar-row">
       <select id="project-select" class="project-select"></select>
+      <button id="report-btn" class="icon-btn" title="일별 작업사항 정리">📅</button>
       <button id="add-project" class="icon-btn" title="프로젝트 추가">＋</button>
       <button id="del-project" class="icon-btn danger" title="프로젝트 삭제">🗑</button>
     </div>
@@ -39,6 +40,19 @@
     </div>
     <div id="swipe-track" class="swipe-track"></div>
     <div class="swipe-dots" id="swipe-dots"></div>
+  </section>
+
+  <!-- 일별 작업사항 정리 (표) 화면 -->
+  <section id="view-report" class="view hidden">
+    <div class="swipe-header">
+      <button id="report-back" class="icon-btn">←</button>
+      <div class="swipe-title">
+        <div class="swipe-menu-name">📅 일별 작업사항 정리</div>
+        <div id="report-sub" class="swipe-counter"></div>
+      </div>
+      <button id="report-export" class="icon-btn" title="엑셀 내보내기">⬇</button>
+    </div>
+    <div id="report-body" class="report-body"></div>
   </section>
 
   <!-- 모달 -->

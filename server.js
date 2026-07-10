@@ -372,6 +372,49 @@ app.delete('/api/logs/:id', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+/* ------------------------- 일별 작업사항 정리 (프로젝트) ------------------------- */
+const fmtHandled = (v) => {
+  try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a.map((it) => `${it.name || '-'}:${it.weight || '-'}`).join(' | ') : ''; }
+  catch { return ''; }
+};
+async function dailyRows(projectId) {
+  return (await query(`
+    SELECT l.log_date, m.name AS menu_name, t.title AS task_title, l.author, l.content,
+           l.grade, l.hazards, l.heavy_handled, l.work_height
+    FROM logs l
+    JOIN tasks t ON t.id = l.task_id
+    JOIN menus m ON m.id = t.menu_id
+    WHERE m.project_id = $1
+    ORDER BY l.log_date DESC, m.sort_order, m.id, t.sort_order, t.id, l.id
+  `, [projectId])).rows;
+}
+
+// JSON (표 렌더링용)
+app.get('/api/projects/:id/daily', h(async (req, res) => {
+  res.json(await dailyRows(req.params.id));
+}));
+
+// 엑셀(.xlsx) 내보내기
+app.get('/api/projects/:id/daily.xlsx', h(async (req, res) => {
+  const proj = (await query('SELECT name FROM projects WHERE id = $1', [req.params.id])).rows[0];
+  const rows = await dailyRows(req.params.id);
+  const header = ['작업일자', '업무메뉴', '작업오더', '작성자', '안전등급', '위험요인', '취급중량물', '고소작업높이', '작업내용'];
+  const aoa = [header, ...rows.map((r) => [
+    r.log_date || '', r.menu_name || '', r.task_title || '', r.author || '', r.grade || '',
+    r.hazards || '', fmtHandled(r.heavy_handled), r.work_height || '', r.content || '',
+  ])];
+  const ws = xlsx.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 40 }];
+  const wb = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(wb, ws, '일별작업사항');
+  const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  const stamp = new Date().toISOString().slice(0, 10);
+  // 파일명은 ASCII만 (한글 프로젝트명은 헤더에 넣을 수 없음)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="daily-report-${stamp}.xlsx"`);
+  res.send(buf);
+}));
+
 /* ------------------------------ 데이터 내보내기 (관리자) ------------------------------ */
 const csvCell = (v) => {
   const s = String(v ?? '');
