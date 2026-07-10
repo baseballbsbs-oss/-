@@ -37,6 +37,8 @@ const state = {
   members: [],
   me: localStorage.getItem('me_name') || '',
   swipe: null, // { menu, tasks, index }
+  isAdmin: false,
+  adminEnabled: false,
 };
 
 const MEMBER_COLORS = ['#4f8cff', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#ec4899', '#14b8a6'];
@@ -97,8 +99,11 @@ function bindLogin() {
         err.textContent = e.error || '로그인 실패';
         return;
       }
+      const data = await res.json().catch(() => ({}));
       hideLogin();
+      await refreshSession();
       await startApp();
+      if (data.role === 'admin') toast('관리자로 로그인했습니다.');
     } catch {
       err.textContent = '네트워크 오류';
     }
@@ -108,10 +113,18 @@ function bindLogin() {
 }
 
 /* ============================ 초기화 ============================ */
+async function refreshSession() {
+  const s = await fetch('/api/session').then((r) => r.json())
+    .catch(() => ({ auth_enabled: false, authed: true, is_admin: true, admin_enabled: false }));
+  state.isAdmin = !!s.is_admin;
+  state.adminEnabled = !!s.admin_enabled;
+  updateWhoami();
+  return s;
+}
 async function init() {
   bindLogin();
   bindStaticEvents();
-  const s = await fetch('/api/session').then((r) => r.json()).catch(() => ({ auth_enabled: false, authed: true }));
+  const s = await refreshSession();
   if (s.auth_enabled && !s.authed) {
     showLogin();
     return;
@@ -144,7 +157,7 @@ async function loadMembers() {
   state.members = await api.get('/api/members');
 }
 function updateWhoami() {
-  $('whoami-name').textContent = state.me || '미지정';
+  $('whoami-name').textContent = (state.isAdmin ? '🛡 ' : '') + (state.me || '미지정');
 }
 function openMemberModal() {
   const rows = state.members.map((m) => `
@@ -163,14 +176,22 @@ function openMemberModal() {
       <input id="new-member" placeholder="이름 입력 후 추가" />
     </div>
     <button class="btn btn-ghost" id="add-member-btn">＋ 파트원 추가</button>` : ''}
+    ${state.isAdmin ? `
+    <div class="admin-panel">
+      <div class="admin-title">🛡 관리자 메뉴</div>
+      <button class="btn btn-ghost" id="export-btn">📥 데이터 내보내기 (엑셀/CSV)</button>
+    </div>` : (state.adminEnabled ? '<p style="color:var(--muted);font-size:12px;text-align:center">관리자는 로그아웃 후 관리자 비밀번호로 로그인하세요.</p>' : '')}
     <div class="modal-actions">
       <button class="btn btn-ghost" id="logout-btn" style="flex:0 0 auto">로그아웃</button>
       <button class="btn btn-primary" id="close-member">확인</button>
     </div>
   `);
   $('close-member').onclick = closeModal;
+  const exp = $('export-btn');
+  if (exp) exp.onclick = exportData;
   $('logout-btn').onclick = async () => {
     await fetch('/api/logout', { method: 'POST' });
+    state.isAdmin = false;
     closeModal();
     showLogin();
   };
@@ -473,11 +494,31 @@ function unlockTask(taskId) {
     else fetch(url, { method: 'POST', headers: { 'X-Client-Id': clientId }, keepalive: true });
   } catch { /* noop */ }
 }
+// 관리자 강제 해제
+async function forceUnlock(taskId) {
+  try { await api.post('/api/tasks/' + taskId + '/force-unlock', {}); return true; }
+  catch (e) { toast(e.message); return false; }
+}
+// 관리자 데이터 내보내기 (CSV 다운로드)
+function exportData() {
+  const a = document.createElement('a');
+  a.href = '/api/export';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  toast('내보내기를 시작했습니다.');
+}
 
 /* ============================ 스와이프 뷰 (일별 작업사항) ============================ */
 async function openTask(menu, taskId) {
   // 목록에서 탭할 때 먼저 잠금 시도 → 성공해야 진입
-  const r = await lockTask(taskId);
+  let r = await lockTask(taskId);
+  if (!r.ok && state.isAdmin) {
+    if (confirm(`${r.locked_by || '다른 사용자'} 님이 사용 중입니다.\n관리자 권한으로 강제로 여시겠습니까?`)) {
+      if (await forceUnlock(taskId)) r = await lockTask(taskId);
+    }
+  }
   if (!r.ok) {
     toast(`🔒 ${r.locked_by || '다른 사용자'} 님이 사용 중입니다.`);
     await loadMenus();
@@ -566,8 +607,13 @@ function setPageLocked(pageEl, holderName) {
   if (holderName) {
     if (!ov) { ov = el('div', 'lock-overlay'); pageEl.appendChild(ov); }
     ov.innerHTML = `<div class="lock-msg">🔒<div class="lock-who">${esc(holderName)} 님이<br>사용 중입니다</div>
-      <button class="btn btn-ghost" id="lock-retry">다시 시도</button></div>`;
+      <button class="btn btn-ghost" id="lock-retry">다시 시도</button>
+      ${state.isAdmin ? '<button class="btn btn-danger" id="lock-force" style="margin-top:8px">🛡 관리자 강제 해제</button>' : ''}</div>`;
     ov.querySelector('#lock-retry').onclick = () => setActiveTask(state.swipe.index);
+    const force = ov.querySelector('#lock-force');
+    if (force) force.onclick = async () => {
+      if (await forceUnlock(state.swipe.tasks[state.swipe.index].id)) setActiveTask(state.swipe.index);
+    };
   } else if (ov) {
     ov.remove();
   }

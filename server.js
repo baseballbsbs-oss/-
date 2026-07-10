@@ -2,7 +2,8 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, initDb } from './db.js';
-import { AUTH_ENABLED, checkPassword, setAuthCookie, clearAuthCookie, isAuthed, requireAuth } from './auth.js';
+import { AUTH_ENABLED, ADMIN_ENABLED, roleForPassword, setAuthCookie, clearAuthCookie,
+         isAuthed, isAdmin, requireAuth, requireAdmin } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -38,14 +39,18 @@ async function assertUnlocked(taskId, cid, res) {
 
 /* ------------------------------ 인증 ------------------------------ */
 app.get('/api/session', (req, res) => {
-  res.json({ auth_enabled: AUTH_ENABLED, authed: isAuthed(req) });
+  res.json({
+    auth_enabled: AUTH_ENABLED,
+    admin_enabled: ADMIN_ENABLED,
+    authed: isAuthed(req),
+    is_admin: isAdmin(req),
+  });
 });
 app.post('/api/login', (req, res) => {
-  if (!checkPassword(req.body?.password)) {
-    return res.status(401).json({ error: '비밀번호가 올바르지 않습니다.' });
-  }
-  setAuthCookie(res);
-  res.json({ ok: true });
+  const role = roleForPassword(req.body?.password);
+  if (!role) return res.status(401).json({ error: '비밀번호가 올바르지 않습니다.' });
+  setAuthCookie(res, role);
+  res.json({ ok: true, role });
 });
 app.post('/api/logout', (req, res) => {
   clearAuthCookie(res);
@@ -194,6 +199,12 @@ app.post('/api/tasks/:id/unlock', h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// 잠금 강제 해제 (관리자 전용)
+app.post('/api/tasks/:id/force-unlock', requireAdmin, h(async (req, res) => {
+  await query('UPDATE tasks SET locked_by=NULL, locked_by_id=NULL, locked_at=NULL WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+}));
+
 /* ------------------------- 일별 작업사항 로그 ------------------------- */
 app.get('/api/tasks/:id/logs', h(async (req, res) => {
   const { rows } = await query(
@@ -229,6 +240,42 @@ app.delete('/api/logs/:id', h(async (req, res) => {
   if (existing && !(await assertUnlocked(existing.task_id, getCid(req), res))) return;
   await query('DELETE FROM logs WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
+}));
+
+/* ------------------------------ 데이터 내보내기 (관리자) ------------------------------ */
+const csvCell = (v) => {
+  const s = String(v ?? '');
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+};
+const KIND_KO = { work_order: 'OH 작업오더', general: '일반 업무' };
+const STATUS_KO = { todo: '예정', doing: '진행중', done: '완료' };
+
+app.get('/api/export', requireAdmin, h(async (req, res) => {
+  const { rows } = await query(`
+    SELECT p.name AS project, m.name AS menu, m.kind,
+      t.title, t.order_number, t.functional_location, t.fme_grade, t.hazard_factors, t.note, t.status,
+      l.log_date, l.author, l.content
+    FROM projects p
+    JOIN menus m ON m.project_id = p.id
+    JOIN tasks t ON t.menu_id = m.id
+    LEFT JOIN logs l ON l.task_id = t.id
+    ORDER BY p.id, m.sort_order, m.id, t.sort_order, t.id, l.log_date, l.id
+  `);
+  const header = ['프로젝트', '업무메뉴', '유형', '작업오더/업무', '오더번호', '기능위치',
+    'FME등급', '유해위험요소', '비고', '상태', '작업일자', '작성자', '작업내용'];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    lines.push([
+      r.project, r.menu, KIND_KO[r.kind] || r.kind, r.title, r.order_number, r.functional_location,
+      r.fme_grade, r.hazard_factors, r.note, STATUS_KO[r.status] || r.status,
+      r.log_date || '', r.author || '', r.content || '',
+    ].map(csvCell).join(','));
+  }
+  const csv = '﻿' + lines.join('\r\n'); // BOM: 엑셀 한글 깨짐 방지
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="scheduler-export-${stamp}.csv"`);
+  res.send(csv);
 }));
 
 /* ------------------------------ 정적 / SPA ------------------------------ */
