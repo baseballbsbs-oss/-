@@ -48,6 +48,18 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- 로그인 게이트 -->
+  <div id="login-gate" class="login-gate hidden">
+    <div class="login-box">
+      <div class="login-emoji">🔒</div>
+      <h2>파트별 업무 스케줄러</h2>
+      <p>파트원 공용 비밀번호를 입력하세요.</p>
+      <input id="login-pw" type="password" placeholder="비밀번호" autocomplete="current-password" />
+      <button id="login-btn" class="btn btn-primary">입장</button>
+      <div id="login-err" class="login-err"></div>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
 </html>

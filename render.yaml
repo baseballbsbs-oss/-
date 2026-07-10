@@ -1,0 +1,17 @@
+# Render Blueprint - 무료 웹 서비스로 배포
+# https://render.com  →  New +  →  Blueprint  →  이 저장소 선택
+services:
+  - type: web
+    name: dept-task-scheduler
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # 아래 두 값은 Render 대시보드에서 직접 입력 (sync:false → 값 미포함)
+      - key: DATABASE_URL      # Neon Postgres 연결 문자열
+        sync: false
+      - key: APP_PASSWORD      # 파트원 공용 비밀번호
+        sync: false

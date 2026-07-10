@@ -6,6 +6,10 @@ const api = {
     const opt = { method, headers: { 'Content-Type': 'application/json' } };
     if (body !== undefined) opt.body = JSON.stringify(body);
     const res = await fetch(url, opt);
+    if (res.status === 401) {
+      showLogin();
+      throw new Error('인증이 필요합니다.');
+    }
     if (!res.ok) {
       const e = await res.json().catch(() => ({ error: '요청 실패' }));
       throw new Error(e.error || '요청 실패');
@@ -63,12 +67,55 @@ $('modal-backdrop').addEventListener('click', (e) => {
   if (e.target === $('modal-backdrop')) closeModal();
 });
 
+/* ============================ 로그인 ============================ */
+function showLogin() {
+  $('login-gate').classList.remove('hidden');
+  const pw = $('login-pw');
+  pw.value = '';
+  pw.focus();
+}
+function hideLogin() { $('login-gate').classList.add('hidden'); }
+function bindLogin() {
+  const submit = async () => {
+    const err = $('login-err');
+    err.textContent = '';
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: $('login-pw').value }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        err.textContent = e.error || '로그인 실패';
+        return;
+      }
+      hideLogin();
+      await startApp();
+    } catch {
+      err.textContent = '네트워크 오류';
+    }
+  };
+  $('login-btn').onclick = submit;
+  $('login-pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+}
+
 /* ============================ 초기화 ============================ */
 async function init() {
+  bindLogin();
+  bindStaticEvents();
+  const s = await fetch('/api/session').then((r) => r.json()).catch(() => ({ auth_enabled: false, authed: true }));
+  if (s.auth_enabled && !s.authed) {
+    showLogin();
+    return;
+  }
+  await startApp();
+}
+
+async function startApp() {
   updateWhoami();
   await loadMembers();
   await loadProjects();
-  bindStaticEvents();
   if (!state.me) openMemberModal();
 }
 
@@ -77,7 +124,7 @@ function bindStaticEvents() {
   $('add-project').onclick = openProjectModal;
   $('del-project').onclick = deleteCurrentProject;
   $('project-select').onchange = (e) => selectProject(Number(e.target.value));
-  $('add-menu').onclick = openMenuModal;
+  $('add-menu').onclick = () => openMenuModal();
   $('swipe-back').onclick = closeSwipe;
   $('swipe-edit').onclick = () => {
     const s = state.swipe;
@@ -109,9 +156,17 @@ function openMemberModal() {
       <input id="new-member" placeholder="이름 입력 후 추가" />
     </div>
     <button class="btn btn-ghost" id="add-member-btn">＋ 파트원 추가</button>` : ''}
-    <div class="modal-actions"><button class="btn btn-primary" id="close-member">확인</button></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="logout-btn" style="flex:0 0 auto">로그아웃</button>
+      <button class="btn btn-primary" id="close-member">확인</button>
+    </div>
   `);
   $('close-member').onclick = closeModal;
+  $('logout-btn').onclick = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    closeModal();
+    showLogin();
+  };
   const addBtn = $('add-member-btn');
   if (addBtn) addBtn.onclick = addMember;
   document.querySelectorAll('.member-item').forEach((it) => {
