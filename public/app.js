@@ -43,6 +43,7 @@ const state = {
   reportGroup: 'date',
   reportFrom: '',
   reportTo: '',
+  menuSearch: {}, // 메뉴별 작업오더 검색어
 };
 
 const MEMBER_COLORS = ['#4f8cff', '#38bdf8', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#ec4899', '#14b8a6'];
@@ -383,7 +384,14 @@ function renderMenuCard(m) {
   card.appendChild(head);
 
   const list = el('div', 'task-list');
-  for (const t of m.tasks) list.appendChild(renderTaskRow(m, t, isWO));
+  const rowRefs = [];
+  for (const t of m.tasks) {
+    const r = renderTaskRow(m, t, isWO);
+    rowRefs.push({ t, r });
+    list.appendChild(r);
+  }
+  const noMatch = el('div', 'empty-hint wo-nomatch hidden', '검색 결과가 없습니다.');
+  list.appendChild(noMatch);
   const addRow = el('div', 'add-task-row', isWO ? '＋ 작업오더 추가' : '＋ 하부 업무 추가');
   addRow.onclick = () => openTaskModal(m, null);
   list.appendChild(addRow);
@@ -392,8 +400,38 @@ function renderMenuCard(m) {
     impRow.onclick = () => openImportModal(m);
     list.appendChild(impRow);
   }
-  card.appendChild(list);
+
+  // 작업오더 검색 (OH 작업오더 메뉴, 항목이 있을 때)
+  if (isWO && m.tasks.length) {
+    const searchWrap = el('div', 'wo-search-wrap');
+    searchWrap.innerHTML = `<input class="wo-search" type="search"
+      placeholder="🔍 작업오더 검색 (제목·오더번호·기능위치·설계자 등)"
+      value="${esc(state.menuSearch[m.id] || '')}" />`;
+    const input = searchWrap.querySelector('input');
+    const applyFilter = () => {
+      const term = input.value.trim().toLowerCase();
+      state.menuSearch[m.id] = input.value;
+      let shown = 0;
+      for (const { t, r } of rowRefs) {
+        const match = !term || taskSearchText(t).includes(term);
+        r.classList.toggle('hidden', !match);
+        if (match) shown += 1;
+      }
+      noMatch.classList.toggle('hidden', !(term && shown === 0));
+    };
+    input.oninput = applyFilter;
+    card.appendChild(searchWrap);
+    card.appendChild(list);
+    applyFilter();
+  } else {
+    card.appendChild(list);
+  }
   return card;
+}
+function taskSearchText(t) {
+  return [t.title, t.order_number, t.functional_location, t.fme_grade, t.quality_grade,
+    t.quality_witness, t.designer, t.supervisor, t.hazard_factors, t.note]
+    .join(' ').toLowerCase();
 }
 
 function openImportModal(menu) {
@@ -1145,8 +1183,11 @@ document.addEventListener('visibilitychange', () => {
 setInterval(() => {
   if (state.swipe) return;                                   // 스와이프 중이면 skip
   if (!$('modal-backdrop').classList.contains('hidden')) return; // 모달 열려있으면 skip
+  if (!$('view-report').classList.contains('hidden')) return;    // 리포트 화면이면 skip
   if (document.visibilityState !== 'visible') return;
   if (!state.currentProjectId) return;
+  const act = document.activeElement;                        // 검색 입력 중이면 skip
+  if (act && act.classList && act.classList.contains('wo-search')) return;
   loadMenus();
 }, 20000);
 
