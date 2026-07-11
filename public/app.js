@@ -1142,7 +1142,7 @@ function renderReport() {
   const gInfo = REPORT_GROUPS[group];
   let html = `<div class="report-scroll"><table class="report-table">
     <thead><tr>
-      <th>일자</th><th>업무메뉴</th><th>작업오더</th><th>설계자</th><th>감독자</th><th>작성자</th>
+      <th>작업오더</th><th>오더번호</th><th>일자</th><th>업무메뉴</th><th>설계자</th><th>감독자</th><th>작성자</th>
       <th>등급</th><th>위험요인</th><th>취급중량물</th><th>고소높이</th><th>작업계획</th><th>실제작업사항</th>
     </tr></thead><tbody>`;
   let prevKey = null;
@@ -1152,12 +1152,13 @@ function renderReport() {
       prevKey = k;
       const cnt = rows.filter((x) => gInfo.key(x) === k).length;
       const title = group === 'date' ? `📅 ${esc(k)}` : `${gInfo.label} · ${esc(k)}`;
-      html += `<tr class="rp-group"><td colspan="12">${title} <span class="rp-count">${cnt}건</span></td></tr>`;
+      html += `<tr class="rp-group"><td colspan="13">${title} <span class="rp-count">${cnt}건</span></td></tr>`;
     }
     html += `<tr>
+      <td>${esc(r.task_title)}</td>
+      <td>${esc(r.order_number) || '-'}</td>
       <td class="rp-date">${esc(r.log_date)}</td>
       <td>${esc(r.menu_name)}</td>
-      <td>${esc(r.task_title)}</td>
       <td>${esc(r.designer) || '-'}</td>
       <td>${esc(r.supervisor) || '-'}</td>
       <td>${esc(r.author) || '-'}</td>
