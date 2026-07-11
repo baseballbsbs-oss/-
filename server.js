@@ -411,15 +411,15 @@ app.get('/api/projects/:id/daily', h(async (req, res) => {
 // 엑셀(.xlsx) 내보내기 (?group=date|order|designer|supervisor)
 app.get('/api/projects/:id/daily.xlsx', h(async (req, res) => {
   const rows = sortDaily(await dailyRows(req.params.id, req.query.from, req.query.to), req.query.group);
-  const header = ['작업오더', '오더번호', '작업일자', '업무메뉴', '설계자', '감독자', '작성자', '안전등급',
+  const header = ['작업일자', '작업오더', '오더번호', '업무메뉴', '설계자', '감독자', '작성자', '안전등급',
     '위험요인', '취급중량물', '고소작업높이', '작업계획', '실제작업사항'];
   const aoa = [header, ...rows.map((r) => [
-    r.task_title || '', r.order_number || '', r.log_date || '', r.menu_name || '', r.designer || '', r.supervisor || '',
+    r.log_date || '', r.task_title || '', r.order_number || '', r.menu_name || '', r.designer || '', r.supervisor || '',
     r.author || '', r.grade || '', r.hazards || '', fmtHandled(r.heavy_handled), r.work_height || '',
     r.content || '', r.actual || '',
   ])];
   const ws = xlsx.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 40 }, { wch: 40 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 40 }, { wch: 40 }];
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, '일별작업사항');
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });

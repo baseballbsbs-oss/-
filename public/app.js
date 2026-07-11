@@ -201,13 +201,15 @@ function bindStaticEvents() {
       renderReport();
     };
   });
-  $('report-from').onchange = (e) => { state.reportFrom = e.target.value; renderReport(); };
-  $('report-to').onchange = (e) => { state.reportTo = e.target.value; renderReport(); };
-  $('report-clear').onclick = () => {
-    state.reportFrom = ''; state.reportTo = '';
-    $('report-from').value = ''; $('report-to').value = '';
-    renderReport();
-  };
+  $('report-from').onchange = (e) => { state.reportFrom = e.target.value; markQuick(); renderReport(); };
+  $('report-to').onchange = (e) => { state.reportTo = e.target.value; markQuick(); renderReport(); };
+  $('report-clear').onclick = () => setReportRange('', '');
+  document.querySelectorAll('#report-quick button').forEach((b) => {
+    b.onclick = () => {
+      const [from, to] = quickRange(b.dataset.q);
+      setReportRange(from, to);
+    };
+  });
   $('swipe-back').onclick = closeSwipe;
   $('swipe-edit').onclick = () => {
     const s = state.swipe;
@@ -1107,6 +1109,36 @@ function sortReport(rows, group) {
   if (!kf[group]) return rows.slice();
   return rows.slice().sort((a, b) => kf[group](a).localeCompare(kf[group](b), 'ko') || dateDesc(a, b));
 }
+const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function quickRange(kind) {
+  const base = new Date();
+  const shift = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+  if (kind === 'yesterday') { const d = fmtDate(shift(base, -1)); return [d, d]; }
+  if (kind === 'today') { const d = fmtDate(base); return [d, d]; }
+  if (kind === 'tomorrow') { const d = fmtDate(shift(base, 1)); return [d, d]; }
+  if (kind === 'week') { // 월요일 ~ 일요일
+    const day = base.getDay(); // 0=일 .. 6=토
+    const mon = shift(base, day === 0 ? -6 : 1 - day);
+    const sun = shift(mon, 6);
+    return [fmtDate(mon), fmtDate(sun)];
+  }
+  return ['', ''];
+}
+function markQuick() {
+  const cur = state.reportFrom && state.reportFrom === state.reportTo
+    ? (state.reportFrom === quickRange('today')[0] ? 'today'
+      : state.reportFrom === quickRange('yesterday')[0] ? 'yesterday'
+        : state.reportFrom === quickRange('tomorrow')[0] ? 'tomorrow' : '')
+    : (state.reportFrom === quickRange('week')[0] && state.reportTo === quickRange('week')[1] ? 'week' : '');
+  document.querySelectorAll('#report-quick button').forEach((b) =>
+    b.classList.toggle('active', b.dataset.q === cur));
+}
+function setReportRange(from, to) {
+  state.reportFrom = from; state.reportTo = to;
+  $('report-from').value = from; $('report-to').value = to;
+  markQuick();
+  renderReport();
+}
 async function openReport() {
   if (!state.currentProjectId) return toast('먼저 프로젝트를 선택하세요.');
   $('view-menus').classList.add('hidden');
@@ -1115,7 +1147,9 @@ async function openReport() {
   $('report-body').innerHTML = '<div class="empty-hint">불러오는 중…</div>';
   try { state.reportRows = await api.get('/api/projects/' + state.currentProjectId + '/daily'); }
   catch (e) { $('report-body').innerHTML = `<div class="empty-hint">불러오기 실패: ${esc(e.message)}</div>`; return; }
-  renderReport();
+  // 범위를 지정하지 않았으면 기본 '당일'
+  const today = fmtDate(new Date());
+  setReportRange(state.reportFrom || today, state.reportTo || today);
 }
 function renderReport() {
   const group = state.reportGroup;
@@ -1142,7 +1176,7 @@ function renderReport() {
   const gInfo = REPORT_GROUPS[group];
   let html = `<div class="report-scroll"><table class="report-table">
     <thead><tr>
-      <th>작업오더</th><th>오더번호</th><th>일자</th><th>업무메뉴</th><th>설계자</th><th>감독자</th><th>작성자</th>
+      <th>일자</th><th>작업오더</th><th>오더번호</th><th>업무메뉴</th><th>설계자</th><th>감독자</th><th>작성자</th>
       <th>등급</th><th>위험요인</th><th>취급중량물</th><th>고소높이</th><th>작업계획</th><th>실제작업사항</th>
     </tr></thead><tbody>`;
   let prevKey = null;
@@ -1155,9 +1189,9 @@ function renderReport() {
       html += `<tr class="rp-group"><td colspan="13">${title} <span class="rp-count">${cnt}건</span></td></tr>`;
     }
     html += `<tr>
+      <td class="rp-date">${esc(r.log_date)}</td>
       <td>${esc(r.task_title)}</td>
       <td>${esc(r.order_number) || '-'}</td>
-      <td class="rp-date">${esc(r.log_date)}</td>
       <td>${esc(r.menu_name)}</td>
       <td>${esc(r.designer) || '-'}</td>
       <td>${esc(r.supervisor) || '-'}</td>
