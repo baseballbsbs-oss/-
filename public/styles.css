@@ -75,6 +75,16 @@ body {
 }
 .mini-btn.danger { color: var(--danger); }
 
+.menu-progress {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-bottom: 1px solid rgba(51,65,85,.5);
+}
+.mp-bar { flex: 1; height: 8px; background: var(--card-2); border-radius: 999px; overflow: hidden; }
+.mp-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width .3s; }
+.mp-fill.full { background: var(--ok); }
+.mp-text { font-size: 13px; color: var(--text); white-space: nowrap; }
+.mp-text span { color: var(--muted); font-size: 12px; }
+
 .wo-search-wrap { padding: 10px 12px; border-bottom: 1px solid rgba(51,65,85,.5); }
 .wo-search {
   width: 100%; background: var(--bg-2); color: var(--text);

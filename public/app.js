@@ -383,6 +383,18 @@ function renderMenuCard(m) {
   };
   card.appendChild(head);
 
+  // 진행률 (완료 상태 기준)
+  const total = m.tasks.length;
+  const done = m.tasks.filter((t) => t.status === 'done').length;
+  if (total > 0) {
+    const pct = Math.round((done / total) * 100);
+    const prog = el('div', 'menu-progress');
+    prog.innerHTML = `
+      <div class="mp-bar"><div class="mp-fill${pct === 100 ? ' full' : ''}" style="width:${pct}%"></div></div>
+      <div class="mp-text"><b>${pct}%</b> <span>(${done}/${total})</span></div>`;
+    card.appendChild(prog);
+  }
+
   const list = el('div', 'task-list');
   const rowRefs = [];
   for (const t of m.tasks) {
@@ -820,9 +832,11 @@ async function openSwipe(menu, focusTaskId) {
     clearTimeout(state.swipe.settleTimer);
     state.swipe.settleTimer = setTimeout(() => setActiveTask(state.swipe.index), 180);
   };
-  // 포커스 페이지로 이동
+  // 포커스 페이지로 즉시 이동 (부드러운 스크롤 애니메이션 중 index가 잠깐 어긋나는 것 방지)
   requestAnimationFrame(() => {
+    track.style.scrollBehavior = 'auto';
     track.scrollLeft = index * track.clientWidth;
+    requestAnimationFrame(() => { track.style.scrollBehavior = ''; });
   });
   await setActiveTask(index);
 
