@@ -345,9 +345,10 @@ app.post('/api/tasks/:id/logs', h(async (req, res) => {
   if (!content || !content.trim()) throw new Error('작업 내용을 입력하세요.');
   const s = safetyFromBody(req.body);
   const { rows } = await query(
-    `INSERT INTO logs (task_id, log_date, content, author, hazards, heavy_handled, grade, work_height)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [req.params.id, log_date, content.trim(), author || '', s.hazardsStr, s.heavyStr, s.grade, String(req.body.work_height || '').trim()]);
+    `INSERT INTO logs (task_id, log_date, content, actual, author, hazards, heavy_handled, grade, work_height)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [req.params.id, log_date, content.trim(), String(req.body.actual || '').trim(), author || '',
+     s.hazardsStr, s.heavyStr, s.grade, String(req.body.work_height || '').trim()]);
   res.json(rows[0]);
 }));
 
@@ -358,9 +359,10 @@ app.put('/api/logs/:id', h(async (req, res) => {
   const { log_date, content, author } = req.body;
   const s = safetyFromBody(req.body);
   const { rows } = await query(
-    `UPDATE logs SET log_date=$1, content=$2, author=$3, hazards=$4, heavy_handled=$5, grade=$6, work_height=$7, updated_at=now()
-     WHERE id=$8 RETURNING *`,
-    [log_date || existing.log_date, (content ?? existing.content).trim(), author ?? existing.author,
+    `UPDATE logs SET log_date=$1, content=$2, actual=$3, author=$4, hazards=$5, heavy_handled=$6, grade=$7, work_height=$8, updated_at=now()
+     WHERE id=$9 RETURNING *`,
+    [log_date || existing.log_date, (content ?? existing.content).trim(),
+     String(req.body.actual ?? existing.actual ?? '').trim(), author ?? existing.author,
      s.hazardsStr, s.heavyStr, s.grade, String(req.body.work_height ?? existing.work_height ?? '').trim(), req.params.id]);
   res.json(rows[0]);
 }));
@@ -384,7 +386,7 @@ async function dailyRows(projectId, from, to) {
   if (to) { params.push(to); cond.push(`l.log_date <= $${params.length}`); }
   return (await query(`
     SELECT l.log_date, m.name AS menu_name, t.id AS task_id, t.title AS task_title,
-           t.designer, t.supervisor, l.author, l.content,
+           t.designer, t.supervisor, l.author, l.content, l.actual,
            l.grade, l.hazards, l.heavy_handled, l.work_height
     FROM logs l
     JOIN tasks t ON t.id = l.task_id
@@ -410,13 +412,14 @@ app.get('/api/projects/:id/daily', h(async (req, res) => {
 app.get('/api/projects/:id/daily.xlsx', h(async (req, res) => {
   const rows = sortDaily(await dailyRows(req.params.id, req.query.from, req.query.to), req.query.group);
   const header = ['작업일자', '업무메뉴', '작업오더', '설계자', '감독자', '작성자', '안전등급',
-    '위험요인', '취급중량물', '고소작업높이', '작업내용'];
+    '위험요인', '취급중량물', '고소작업높이', '작업계획', '실제작업사항'];
   const aoa = [header, ...rows.map((r) => [
     r.log_date || '', r.menu_name || '', r.task_title || '', r.designer || '', r.supervisor || '',
-    r.author || '', r.grade || '', r.hazards || '', fmtHandled(r.heavy_handled), r.work_height || '', r.content || '',
+    r.author || '', r.grade || '', r.hazards || '', fmtHandled(r.heavy_handled), r.work_height || '',
+    r.content || '', r.actual || '',
   ])];
   const ws = xlsx.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 40 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 9 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 40 }, { wch: 40 }];
   const wb = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(wb, ws, '일별작업사항');
   const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -438,7 +441,7 @@ const STATUS_KO = { todo: '예정', doing: '진행중', done: '완료' };
 app.get('/api/export', requireAdmin, h(async (req, res) => {
   const { rows } = await query(`
     SELECT p.name AS project, m.name AS menu, m.kind, t.*,
-      l.log_date, l.author, l.content, l.hazards, l.grade, l.heavy_handled, l.work_height
+      l.log_date, l.author, l.content, l.actual, l.hazards, l.grade, l.heavy_handled, l.work_height
     FROM projects p
     JOIN menus m ON m.project_id = p.id
     JOIN tasks t ON t.menu_id = m.id
@@ -460,7 +463,7 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
   };
   const header = ['프로젝트', '업무메뉴', '유형', '작업오더/업무', '오더번호', '기능위치', 'FME등급',
     '품질등급', '품질입회', '산업안전/화재방호', '비계설치', '중량물(품명:무게/인양장구)',
-    '설계자', '감독자', '비고', '상태', '작업일자', '작성자', '작업내용',
+    '설계자', '감독자', '비고', '상태', '작업일자', '작성자', '작업계획', '실제작업사항',
     '당일안전등급', '당일위험요인', '당일취급중량물', '당일고소작업높이'];
   const lines = [header.join(',')];
   for (const r of rows) {
@@ -468,7 +471,7 @@ app.get('/api/export', requireAdmin, h(async (req, res) => {
       r.project, r.menu, KIND_KO[r.kind] || r.kind, r.title, r.order_number, r.functional_location, r.fme_grade,
       r.quality_grade, r.quality_witness, r.hazard_factors, scaffold(r), heavy(r),
       r.designer, r.supervisor, r.note, STATUS_KO[r.status] || r.status,
-      r.log_date || '', r.author || '', r.content || '',
+      r.log_date || '', r.author || '', r.content || '', r.actual || '',
       r.grade || '', r.hazards || '', handled(r), r.work_height || '',
     ].map(csvCell).join(','));
   }

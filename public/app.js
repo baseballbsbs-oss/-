@@ -959,7 +959,9 @@ async function refreshLogs(taskId) {
         ${gradeTag}
         ${lg.author ? `<span class="log-author">✍ ${esc(lg.author)}</span>` : ''}
       </div>
-      <div class="log-content">${esc(lg.content)}</div>
+      <div class="log-block"><span class="log-tag-plan">계획</span><div class="log-content">${esc(lg.content)}</div></div>
+      ${lg.actual ? `<div class="log-block"><span class="log-tag-actual">실제</span><div class="log-content">${esc(lg.actual)}</div></div>`
+        : '<div class="log-actual-empty">실제 작업 사항 미입력</div>'}
       ${(hzChips || hvChips) ? `<div class="log-tags">${hvChips}${hzChips}</div>` : ''}
       <div class="log-actions">
         <button data-edit="${lg.id}">수정</button>
@@ -999,7 +1001,8 @@ function openLogModal(task, log) {
         ${state.members.length ? '' : '<option value="">미지정</option>'}
       </select>
     </div>
-    <div class="field"><label>작업 내용</label><textarea id="log-content" placeholder="당일 수행한 작업 내용을 기록">${editing ? esc(log.content) : ''}</textarea></div>
+    <div class="field"><label>작업 계획</label><textarea id="log-content" placeholder="당일 계획한 작업 내용">${editing ? esc(log.content) : ''}</textarea></div>
+    <div class="field"><label>실제 작업 사항 <span style="color:var(--muted);font-weight:400">(계획 대비 실제 진행)</span></label><textarea id="log-actual" placeholder="실제 수행한 작업 (나중에 채워도 됨)">${editing ? esc(log.actual || '') : ''}</textarea></div>
     <div class="field"><label>취급할 중량물 선택</label>${heavyHtml}</div>
     <div class="field">
       <label>당일 위험요인 선택</label>
@@ -1062,12 +1065,13 @@ function openLogModal(task, log) {
       log_date: $('log-date').value,
       author: $('log-author').value,
       content: $('log-content').value.trim(),
+      actual: $('log-actual').value.trim(),
       hazards: [...hazards].join(','),
       heavy_handled: JSON.stringify(selectedHeavy()),
       work_height: hazards.has('고소작업') ? $('log-work-height').value.trim() : '',
     };
     if (!payload.log_date) return toast('작업 일자를 선택하세요.');
-    if (!payload.content) return toast('작업 내용을 입력하세요.');
+    if (!payload.content) return toast('작업 계획을 입력하세요.');
     if (editing) await api.put('/api/logs/' + log.id, payload);
     else await api.post('/api/tasks/' + taskId + '/logs', payload);
     closeModal();
@@ -1125,7 +1129,7 @@ function renderReport() {
   let html = `<div class="report-scroll"><table class="report-table">
     <thead><tr>
       <th>일자</th><th>업무메뉴</th><th>작업오더</th><th>설계자</th><th>감독자</th><th>작성자</th>
-      <th>등급</th><th>위험요인</th><th>취급중량물</th><th>고소높이</th><th>작업내용</th>
+      <th>등급</th><th>위험요인</th><th>취급중량물</th><th>고소높이</th><th>작업계획</th><th>실제작업사항</th>
     </tr></thead><tbody>`;
   let prevKey = null;
   for (const r of rows) {
@@ -1134,7 +1138,7 @@ function renderReport() {
       prevKey = k;
       const cnt = rows.filter((x) => gInfo.key(x) === k).length;
       const title = group === 'date' ? `📅 ${esc(k)}` : `${gInfo.label} · ${esc(k)}`;
-      html += `<tr class="rp-group"><td colspan="11">${title} <span class="rp-count">${cnt}건</span></td></tr>`;
+      html += `<tr class="rp-group"><td colspan="12">${title} <span class="rp-count">${cnt}건</span></td></tr>`;
     }
     html += `<tr>
       <td class="rp-date">${esc(r.log_date)}</td>
@@ -1148,6 +1152,7 @@ function renderReport() {
       <td>${handledCell(r.heavy_handled)}</td>
       <td>${esc(r.work_height) || '-'}</td>
       <td class="rp-content">${esc(r.content)}</td>
+      <td class="rp-content">${esc(r.actual) || '-'}</td>
     </tr>`;
   }
   html += '</tbody></table></div>';
