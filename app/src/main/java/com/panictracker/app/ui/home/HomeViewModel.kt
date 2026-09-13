@@ -2,6 +2,7 @@ package com.panictracker.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.panictracker.app.data.MedicationPresets
 import com.panictracker.app.data.entity.DoseLog
 import com.panictracker.app.data.entity.Medication
 import com.panictracker.app.data.entity.SymptomLog
@@ -116,6 +117,30 @@ class HomeViewModel(private val repo: TrackerRepository) : ViewModel() {
     fun deleteDose(d: DoseLog) {
         viewModelScope.launch { repo.deleteDose(d) }
     }
+
+    /** 첫 화면에서 바로 약을 등록할 수 있게 합니다 — 약물 탭까지 가지 않아도 됩니다. */
+    fun addMedication(m: Medication) {
+        viewModelScope.launch { repo.addMedication(m) }
+    }
+
+    /** 이미 쓰고 있는 색은 피해서 새 약에 색을 배정합니다. */
+    fun nextColor(): Int {
+        val used = state.value.medications.map { it.colorArgb }.toSet()
+        return MedicationPresets.palette.firstOrNull { it !in used }
+            ?: MedicationPresets.colorFor(used.size)
+    }
+
+    /** 직접 입력용 빈 약 템플릿. */
+    fun blankMedication(): Medication = Medication(
+        ingredientName = "",
+        brandName = "",
+        doseMg = 1.0,
+        halfLifeHours = 12.0,
+        tmaxHours = 1.5,
+        onsetMinutes = 30,
+        durationHours = 6.0,
+        colorArgb = nextColor(),
+    )
 
     private fun startOfTodayMs(): Long =
         java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault())

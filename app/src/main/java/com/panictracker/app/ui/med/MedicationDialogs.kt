@@ -51,6 +51,8 @@ fun MedicationEditDialog(
     onDismiss: () -> Unit,
     onSave: (Medication) -> Unit,
     onDelete: (() -> Unit)?,
+    /** 이미 바깥에서 약을 골라 왔다면 목록을 또 보여 줄 필요가 없습니다. */
+    showPresetPicker: Boolean = initial.id == 0L,
 ) {
     var ingredient by remember { mutableStateOf(initial.ingredientName) }
     var brand by remember { mutableStateOf(initial.brandName) }
@@ -61,7 +63,7 @@ fun MedicationEditDialog(
     var duration by remember { mutableStateOf(trimNum(initial.durationHours)) }
     var color by remember { mutableStateOf(initial.colorArgb) }
     var note by remember { mutableStateOf(initial.note) }
-    var showPresets by remember { mutableStateOf(initial.id == 0L) }
+    var showPresets by remember { mutableStateOf(showPresetPicker) }
 
     val draft = initial.copy(
         ingredientName = ingredient.trim(),
