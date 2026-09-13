@@ -1,0 +1,7 @@
+<resources>
+    <!-- 실제 색은 Compose 의 PanicTrackerTheme 이 정합니다. 여기서는 시작 화면만 담당합니다. -->
+    <style name="Theme.PanicTracker" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

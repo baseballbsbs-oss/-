@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  런처 아이콘을 길게 누르면 나오는 바로가기.
+  누르는 즉시 현재 시각으로 증상이 기록되므로, 발작 중에 화면을 헤맬 필요가 없습니다.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="log_panic"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_symptom"
+        android:shortcutShortLabel="@string/shortcut_panic_short"
+        android:shortcutLongLabel="@string/shortcut_panic_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.panictracker.app"
+            android:targetClass="com.panictracker.app.MainActivity">
+            <extra
+                android:name="quick_symptom"
+                android:value="PANIC_ATTACK" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="log_anxiety"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_symptom"
+        android:shortcutShortLabel="@string/shortcut_anxiety_short"
+        android:shortcutLongLabel="@string/shortcut_anxiety_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.panictracker.app"
+            android:targetClass="com.panictracker.app.MainActivity">
+            <extra
+                android:name="quick_symptom"
+                android:value="ANXIETY" />
+        </intent>
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="log_palpitations"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_symptom"
+        android:shortcutShortLabel="@string/shortcut_palpitations_short"
+        android:shortcutLongLabel="@string/shortcut_palpitations_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.panictracker.app"
+            android:targetClass="com.panictracker.app.MainActivity">
+            <extra
+                android:name="quick_symptom"
+                android:value="PALPITATIONS" />
+        </intent>
+    </shortcut>
+
+</shortcuts>
