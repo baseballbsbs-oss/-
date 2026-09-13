@@ -40,8 +40,10 @@ jobs:
       - name: Gradle 준비 (의존성 캐시 포함)
         uses: gradle/actions/setup-gradle@v4
 
+      # 테스트 소스는 변이(variant)와 무관하므로 debug 쪽만 돌립니다 —
+      # release 변이까지 돌리면 같은 테스트를 두 번 빌드하게 되어 시간만 늘어납니다.
       - name: 단위 테스트
-        run: ./gradlew --no-daemon test
+        run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: 디버그 APK 빌드
         run: ./gradlew --no-daemon assembleDebug

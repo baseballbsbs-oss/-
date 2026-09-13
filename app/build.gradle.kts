@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
 }
 
 android {
@@ -45,8 +46,14 @@ android {
     }
 }
 
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
+// Room 스키마 내보내기.
+//
+// KSP 인자(room.schemaLocation)로 직접 지정하면 debug·release 두 변이의 KSP 태스크가
+// 같은 디렉터리를 출력으로 삼게 되어, Gradle 빌드 캐시가 관여할 때 스키마 파일이 비워진
+// 채로 남고 "Empty schema file" 로 빌드가 깨집니다. Room Gradle 플러그인은 변이별로
+// 디렉터리를 나누고 태스크 출력으로 제대로 등록해 주므로 이 문제가 생기지 않습니다.
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 dependencies {
