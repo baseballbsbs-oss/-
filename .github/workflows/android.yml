@@ -11,8 +11,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 릴리스에 APK 를 올리려면 쓰기 권한이 필요합니다.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -55,10 +56,48 @@ jobs:
           retention-days: 14
 
       # 갤럭시 폰에 바로 설치해 볼 수 있도록 APK 를 첨부합니다.
-      - name: 디버그 APK 업로드
+      - name: 디버그 APK 업로드 (Actions 아티팩트)
         uses: actions/upload-artifact@v4
         with:
           name: panic-tracker-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      # Actions 아티팩트는 .zip 으로 감싸지고 로그인한 사용자만 받을 수 있어
+      # 휴대폰에서 내려받기가 번거롭습니다. 릴리스 자산으로도 올려 두면
+      # 링크 하나로 바로 받아 설치할 수 있습니다.
+      - name: 최신 디버그 APK 를 릴리스에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: debug-latest
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          cp "$apk" panic-tracker-debug.apk
+          notes=$(cat <<NOTES
+          공황 기록 앱의 최신 디버그 빌드입니다. 아래 \`panic-tracker-debug.apk\` 를 눌러 받으세요.
+
+          - 커밋: \`${{ github.sha }}\`
+          - 브랜치: \`${{ github.ref_name }}\`
+          - 빌드 시각: $(date -u '+%Y-%m-%d %H:%M UTC')
+
+          ### 갤럭시에 설치하는 법
+          1. 폰의 브라우저로 이 페이지를 열고 \`panic-tracker-debug.apk\` 를 눌러 받습니다.
+          2. "이 출처의 앱 설치 허용" 을 묻는 창이 뜨면 허용합니다
+             (설정 → 앱 → 특별한 접근 → 알 수 없는 앱 설치).
+          3. 받은 파일을 눌러 설치합니다.
+
+          디버그 서명 빌드라 Play 스토어 앱과는 별개로 설치됩니다.
+          NOTES
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" panic-tracker-debug.apk --clobber
+            gh release edit "$TAG" --notes "$notes" --prerelease
+          else
+            # 이 저장소의 기본 브랜치는 별개 프로젝트라, 태그는 반드시 이 커밋에 답니다.
+            gh release create "$TAG" panic-tracker-debug.apk \
+              --target "$GITHUB_SHA" \
+              --title "디버그 빌드 (최신)" --notes "$notes" --prerelease
+          fi
+          echo "릴리스: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$TAG"
