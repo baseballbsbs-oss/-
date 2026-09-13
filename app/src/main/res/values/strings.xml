@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">공황 기록</string>
+    <string name="shortcut_panic_short">공황발작</string>
+    <string name="shortcut_panic_long">공황발작 바로 기록</string>
+    <string name="shortcut_anxiety_short">불안</string>
+    <string name="shortcut_anxiety_long">불안 바로 기록</string>
+    <string name="shortcut_palpitations_short">두근거림</string>
+    <string name="shortcut_palpitations_long">가슴두근거림 바로 기록</string>
+</resources>
